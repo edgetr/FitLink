@@ -1,0 +1,125 @@
+# Xcode
+#
+# gitignore contributors: remember to update Global Business Docs
+# Build generated
+build/
+DerivedData/
+
+# Various settings
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+xcuserdata/
+
+# Other
+*.moved-aside
+*.xccheckout
+*.xcscmblueprint
+
+# Obj-C/Swift specific
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Playgrounds
+timeline.xctimeline
+playground.xcworkspace
+
+# Swift Package Manager
+#
+# Add this line if you want to avoid checking in source code from Swift Package Manager dependencies.
+# Packages/
+# Package.pins
+# Package.resolved
+.build/
+
+# CocoaPods
+Pods/
+
+# Carthage
+Carthage/Build/
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+# Code Injection
+#
+# After new calculation of the project.
+iOSInjectionProject/
+
+# Sensitive Files - API Keys and Configuration
+# IMPORTANT: Never commit API keys or sensitive configuration
+FitLink/APIConfig.local.plist
+APIConfig.local.plist
+*.local.plist
+
+# Environment files
+.env
+.env.local
+.env.*.local
+*.env
+
+# Secrets
+Secrets/
+secrets/
+*.secret
+*.secrets
+
+# Firebase
+# GoogleService-Info.plist contains API keys - EXCLUDED from version control
+# Developers should copy GoogleService-Info.plist.template and fill in their own keys
+GoogleService-Info.plist
+FitLink/GoogleService-Info.plist
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Thumbnails
+._*
+
+# Files that might appear in the root of a volume
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Directories potentially created on remote AFP share
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# VSCode
+.vscode/
+
+# Test results
+TestResults/
+*.xcresult
+
+# Coverage
+coverage/
+*.gcov
+*.gcda
+*.gcno

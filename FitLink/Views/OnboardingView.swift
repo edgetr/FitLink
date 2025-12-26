@@ -1,0 +1,302 @@
+import SwiftUI
+import UIKit
+import HealthKit
+import CoreLocation
+import UserNotifications
+
+struct OnboardingView: View {
+    @Binding var isPresented: Bool
+    @State private var currentStep = 0
+    @State private var healthKitAuthorized = false
+    @State private var locationAuthorized = false
+    @State private var notificationsAuthorized = false
+    
+    private let healthStore = HKHealthStore()
+    private let locationManager = CLLocationManager()
+    
+    private var steps: [OnboardingStep] {
+        [
+            OnboardingStep(
+                icon: "heart.fill",
+                iconGradient: [.pink, .red],
+                title: "Welcome to FitLink",
+                subtitle: "Your personal fitness companion",
+                description: "Track workouts, plan meals, build habits, and achieve your health goals.",
+                buttonText: "Get Started",
+                action: { nextStep() }
+            ),
+            OnboardingStep(
+                icon: "figure.run",
+                iconGradient: [.blue, .purple],
+                title: "AI-Powered Workouts",
+                subtitle: "Personalized just for you",
+                description: "Get custom workout plans tailored to your fitness level, goals, and available equipment.",
+                buttonText: "Next",
+                action: { nextStep() }
+            ),
+            OnboardingStep(
+                icon: "fork.knife",
+                iconGradient: [.green, .teal],
+                title: "Smart Diet Planning",
+                subtitle: "Eat better, feel better",
+                description: "AI-curated meal plans based on your dietary preferences and nutritional needs.",
+                buttonText: "Next",
+                action: { nextStep() }
+            ),
+            OnboardingStep(
+                icon: "heart.text.square.fill",
+                iconGradient: [.red, .orange],
+                title: "Health Tracking",
+                subtitle: "Connect with Apple Health",
+                description: "Sync your steps, calories, and activity data for a complete picture of your health.",
+                buttonText: healthKitAuthorized ? "Authorized ✓" : "Allow Health Access",
+                action: { requestHealthKitPermission() },
+                isPermissionStep: true,
+                isAuthorized: healthKitAuthorized
+            ),
+            OnboardingStep(
+                icon: "location.fill",
+                iconGradient: [.blue, .cyan],
+                title: "Location Services",
+                subtitle: "Find nearby gyms & trails",
+                description: "Enable location to discover fitness spots near you and track outdoor activities.",
+                buttonText: locationAuthorized ? "Authorized ✓" : "Allow Location",
+                action: { requestLocationPermission() },
+                isPermissionStep: true,
+                isAuthorized: locationAuthorized
+            ),
+            OnboardingStep(
+                icon: "bell.badge.fill",
+                iconGradient: [.orange, .yellow],
+                title: "Stay on Track",
+                subtitle: "Helpful reminders",
+                description: "Get notified about your workouts, meals, and habit streaks.",
+                buttonText: notificationsAuthorized ? "Authorized ✓" : "Allow Notifications",
+                action: { requestNotificationPermission() },
+                isPermissionStep: true,
+                isAuthorized: notificationsAuthorized
+            ),
+            OnboardingStep(
+                icon: "checkmark.circle.fill",
+                iconGradient: [.green, .mint],
+                title: "You're All Set!",
+                subtitle: "Let's start your journey",
+                description: "Everything is ready. Time to crush your fitness goals!",
+                buttonText: "Start Using FitLink",
+                action: { completeOnboarding() }
+            )
+        ]
+    }
+    
+    var body: some View {
+        ZStack {
+            Color(UIColor.systemBackground)
+                .ignoresSafeArea()
+            
+            VStack(spacing: 0) {
+                skipButton
+                
+                Spacer()
+                
+                stepContent
+                
+                Spacer()
+                
+                progressIndicator
+                    .padding(.bottom, 40)
+            }
+        }
+        .interactiveDismissDisabled()
+    }
+    
+    private var skipButton: some View {
+        HStack {
+            Spacer()
+            if currentStep < steps.count - 1 {
+                Button("Skip") {
+                    completeOnboarding()
+                }
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .padding()
+            }
+        }
+    }
+    
+    private var stepContent: some View {
+        let step = steps[currentStep]
+        
+        return VStack(spacing: 32) {
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: step.iconGradient,
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 120, height: 120)
+                    .shadow(color: step.iconGradient.first?.opacity(0.4) ?? .clear, radius: 20, x: 0, y: 10)
+                
+                Image(systemName: step.icon)
+                    .font(.system(size: 50))
+                    .foregroundStyle(.white)
+            }
+            .scaleEffect(1.0)
+            .animation(.spring(response: 0.5, dampingFraction: 0.7), value: currentStep)
+            
+            VStack(spacing: 12) {
+                Text(step.title)
+                    .font(.title)
+                    .fontWeight(.bold)
+                    .multilineTextAlignment(.center)
+                
+                Text(step.subtitle)
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            
+            Text(step.description)
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+                .fixedSize(horizontal: false, vertical: true)
+            
+            VStack(spacing: 16) {
+                Button {
+                    step.action()
+                } label: {
+                    Text(step.buttonText)
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(
+                            LinearGradient(
+                                colors: step.isAuthorized ? [.green, .mint] : step.iconGradient,
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                }
+                .padding(.horizontal, 40)
+                .disabled(step.isPermissionStep && step.isAuthorized)
+                
+                if step.isPermissionStep && !step.isAuthorized {
+                    Button("Skip for now") {
+                        nextStep()
+                    }
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                }
+                
+                if step.isPermissionStep && step.isAuthorized {
+                    Button("Continue") {
+                        nextStep()
+                    }
+                    .font(.headline)
+                    .foregroundStyle(.blue)
+                    .padding(.top, 8)
+                }
+            }
+        }
+        .padding(.horizontal, 20)
+    }
+    
+    private var progressIndicator: some View {
+        HStack(spacing: 8) {
+            ForEach(0..<steps.count, id: \.self) { index in
+                Circle()
+                    .fill(index == currentStep ? Color.blue : Color(UIColor.tertiarySystemFill))
+                    .frame(width: index == currentStep ? 10 : 8, height: index == currentStep ? 10 : 8)
+                    .animation(.easeInOut(duration: 0.2), value: currentStep)
+            }
+        }
+    }
+    
+    private func nextStep() {
+        withAnimation(.easeInOut(duration: 0.3)) {
+            if currentStep < steps.count - 1 {
+                currentStep += 1
+            }
+        }
+    }
+    
+    private func requestHealthKitPermission() {
+        guard HKHealthStore.isHealthDataAvailable() else {
+            nextStep()
+            return
+        }
+        
+        let typesToRead: Set<HKObjectType> = [
+            HKQuantityType.quantityType(forIdentifier: .stepCount)!,
+            HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned)!,
+            HKQuantityType.quantityType(forIdentifier: .distanceWalkingRunning)!,
+            HKQuantityType.quantityType(forIdentifier: .heartRate)!,
+            HKActivitySummaryType.activitySummaryType()
+        ]
+        
+        healthStore.requestAuthorization(toShare: nil, read: typesToRead) { success, _ in
+            DispatchQueue.main.async {
+                self.healthKitAuthorized = success
+                if success {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        self.nextStep()
+                    }
+                }
+            }
+        }
+    }
+    
+    private func requestLocationPermission() {
+        locationManager.requestWhenInUseAuthorization()
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            let status = locationManager.authorizationStatus
+            self.locationAuthorized = (status == .authorizedWhenInUse || status == .authorizedAlways)
+            if self.locationAuthorized {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    self.nextStep()
+                }
+            }
+        }
+    }
+    
+    private func requestNotificationPermission() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, _ in
+            DispatchQueue.main.async {
+                self.notificationsAuthorized = granted
+                if granted {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        self.nextStep()
+                    }
+                }
+            }
+        }
+    }
+    
+    private func completeOnboarding() {
+        OnboardingManager.shared.completeOnboarding()
+        isPresented = false
+    }
+}
+
+struct OnboardingStep {
+    let icon: String
+    let iconGradient: [Color]
+    let title: String
+    let subtitle: String
+    let description: String
+    let buttonText: String
+    let action: () -> Void
+    var isPermissionStep: Bool = false
+    var isAuthorized: Bool = false
+}
+
+#Preview {
+    OnboardingView(isPresented: .constant(true))
+}
