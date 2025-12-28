@@ -16,25 +16,37 @@ class FriendService {
     
     // MARK: - Friend Request Operations
     
-    /// Send a friend request from one user to another
     func sendFriendRequest(from senderId: String, to recipientId: String) async throws {
-        // Check if request already exists
-        let existingRequest = try await getExistingRequest(from: senderId, to: recipientId)
-        if existingRequest != nil {
-            throw FriendServiceError.requestAlreadyExists
+        let deterministicId = FriendRequest.deterministicId(from: senderId, to: recipientId)
+        
+        let existingDoc = try await db.collection(friendRequestsCollection)
+            .document(deterministicId)
+            .getDocument()
+        
+        if existingDoc.exists,
+           let data = existingDoc.data(),
+           let statusRaw = data["status"] as? String,
+           let status = FriendRequestStatus(rawValue: statusRaw) {
+            switch status {
+            case .pending:
+                throw FriendServiceError.requestAlreadyExists
+            case .accepted:
+                throw FriendServiceError.alreadyFriends
+            case .declined, .cancelled:
+                break
+            }
         }
         
-        // Check if they're already friends
         let sender = try await getUser(byId: senderId)
         if sender?.friendIDs.contains(recipientId) == true {
             throw FriendServiceError.alreadyFriends
         }
         
-        // Get user info for caching in the request
         let senderInfo = try await getUser(byId: senderId)
         let recipientInfo = try await getUser(byId: recipientId)
         
         let request = FriendRequest(
+            id: deterministicId,
             from: senderId,
             to: recipientId,
             fromUserDisplayName: senderInfo?.displayName,
@@ -44,7 +56,7 @@ class FriendService {
         )
         
         try await db.collection(friendRequestsCollection)
-            .document(request.id)
+            .document(deterministicId)
             .setData(request.toDictionary())
     }
     
@@ -194,33 +206,40 @@ class FriendService {
     
     // MARK: - Search
     
-    /// Search users by email (case-insensitive partial match)
     func searchUsersByEmail(_ query: String, excluding currentUserId: String) async throws -> [User] {
         let lowercasedQuery = query.lowercased()
         
-        // Firestore doesn't support case-insensitive partial match natively
-        // We'll fetch potential matches and filter client-side
-        // For production, consider using Algolia or a search index
-        
-        let snapshot = try await db.collection(usersCollection)
-            .order(by: "email")
+        let emailSnapshot = try await db.collection(usersCollection)
+            .order(by: "email_lowercased")
             .start(at: [lowercasedQuery])
             .end(at: [lowercasedQuery + "\u{f8ff}"])
             .limit(to: 20)
             .getDocuments()
         
-        var users = snapshot.documents.compactMap { doc in
-            User.fromDictionary(doc.data(), id: doc.documentID)
+        let displayNameSnapshot = try await db.collection(usersCollection)
+            .order(by: "display_name_lowercased")
+            .start(at: [lowercasedQuery])
+            .end(at: [lowercasedQuery + "\u{f8ff}"])
+            .limit(to: 20)
+            .getDocuments()
+        
+        var usersById: [String: User] = [:]
+        
+        for doc in emailSnapshot.documents {
+            if let user = User.fromDictionary(doc.data(), id: doc.documentID),
+               user.id != currentUserId {
+                usersById[user.id] = user
+            }
         }
         
-        // Filter out current user and apply case-insensitive filtering
-        users = users.filter { user in
-            user.id != currentUserId &&
-            (user.email.lowercased().contains(lowercasedQuery) ||
-             user.displayName.lowercased().contains(lowercasedQuery))
+        for doc in displayNameSnapshot.documents {
+            if let user = User.fromDictionary(doc.data(), id: doc.documentID),
+               user.id != currentUserId {
+                usersById[user.id] = user
+            }
         }
         
-        return users
+        return Array(usersById.values)
     }
     
     // MARK: - Helper Methods
@@ -244,28 +263,29 @@ class FriendService {
     }
     
     private func getExistingRequest(from senderId: String, to recipientId: String) async throws -> FriendRequest? {
-        // Check for request in either direction
-        let sentSnapshot = try await db.collection(friendRequestsCollection)
-            .whereField("from_user_id", isEqualTo: senderId)
-            .whereField("to_user_id", isEqualTo: recipientId)
-            .whereField("status", isEqualTo: FriendRequestStatus.pending.rawValue)
-            .limit(to: 1)
-            .getDocuments()
+        let forwardId = FriendRequest.deterministicId(from: senderId, to: recipientId)
+        let reverseId = FriendRequest.deterministicId(from: recipientId, to: senderId)
         
-        if let doc = sentSnapshot.documents.first {
-            return FriendRequest.fromDictionary(doc.data(), id: doc.documentID)
+        let forwardDoc = try await db.collection(friendRequestsCollection)
+            .document(forwardId)
+            .getDocument()
+        
+        if forwardDoc.exists,
+           let data = forwardDoc.data(),
+           let request = FriendRequest.fromDictionary(data, id: forwardDoc.documentID),
+           request.status == .pending {
+            return request
         }
         
-        // Also check reverse direction
-        let receivedSnapshot = try await db.collection(friendRequestsCollection)
-            .whereField("from_user_id", isEqualTo: recipientId)
-            .whereField("to_user_id", isEqualTo: senderId)
-            .whereField("status", isEqualTo: FriendRequestStatus.pending.rawValue)
-            .limit(to: 1)
-            .getDocuments()
+        let reverseDoc = try await db.collection(friendRequestsCollection)
+            .document(reverseId)
+            .getDocument()
         
-        if let doc = receivedSnapshot.documents.first {
-            return FriendRequest.fromDictionary(doc.data(), id: doc.documentID)
+        if reverseDoc.exists,
+           let data = reverseDoc.data(),
+           let request = FriendRequest.fromDictionary(data, id: reverseDoc.documentID),
+           request.status == .pending {
+            return request
         }
         
         return nil
@@ -285,17 +305,17 @@ enum FriendServiceError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .requestAlreadyExists:
-            return "A friend request already exists between these users."
+            return UserFriendlyErrorMessages.Social.requestAlreadyExists
         case .alreadyFriends:
-            return "You are already friends with this user."
+            return UserFriendlyErrorMessages.Social.alreadyFriends
         case .requestNotFound:
-            return "Friend request not found."
+            return UserFriendlyErrorMessages.Social.requestNotFound
         case .requestNotPending:
-            return "This friend request is no longer pending."
+            return UserFriendlyErrorMessages.Social.requestNotPending
         case .userNotFound:
-            return "User not found."
+            return UserFriendlyErrorMessages.Social.userNotFound
         case .selfFriendRequest:
-            return "You cannot send a friend request to yourself."
+            return UserFriendlyErrorMessages.Social.selfRequest
         }
     }
 }
@@ -310,3 +330,7 @@ extension Array {
         }
     }
 }
+
+// MARK: - Protocol Conformance
+
+extension FriendService: FriendServiceProtocol {}

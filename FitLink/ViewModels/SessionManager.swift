@@ -64,7 +64,7 @@ final class SessionManager: ObservableObject {
                 self.currentUserDisplayName = fetchedUser.displayName
             }
         } catch {
-            print("Error fetching user from Firestore: \(error.localizedDescription)")
+            AppLogger.shared.error("Error fetching user from Firestore: \(error.localizedDescription)", category: .auth)
         }
     }
     
@@ -95,6 +95,8 @@ final class SessionManager: ObservableObject {
             self.currentUserID = result.user.uid
             self.currentUserDisplayName = displayName
             self.isAuthenticated = true
+            
+            await triggerHealthSync(userId: result.user.uid)
         } catch {
             errorMessage = mapAuthError(error)
             throw error
@@ -113,6 +115,8 @@ final class SessionManager: ObservableObject {
             self.currentUserDisplayName = result.user.displayName
             self.isAuthenticated = true
             await fetchUserFromFirestore(uid: result.user.uid)
+            
+            await triggerHealthSync(userId: result.user.uid)
         } catch {
             errorMessage = mapAuthError(error)
             throw error
@@ -126,6 +130,7 @@ final class SessionManager: ObservableObject {
             self.currentUserID = nil
             self.currentUserDisplayName = nil
             self.isAuthenticated = false
+            HealthSyncScheduler.shared.clearCurrentUser()
         } catch {
             errorMessage = "Failed to sign out. Please try again."
             throw error
@@ -151,6 +156,15 @@ final class SessionManager: ObservableObject {
         if var updatedUser = user {
             updatedUser.displayName = newName
             user = updatedUser
+        }
+    }
+    
+    private func triggerHealthSync(userId: String) async {
+        HealthSyncScheduler.shared.setCurrentUser(userId)
+        
+        let authorized = try? await HealthDataCollector.shared.requestFullAuthorization()
+        if authorized == true {
+            await HealthSyncScheduler.shared.performForegroundSync(userId: userId)
         }
     }
     

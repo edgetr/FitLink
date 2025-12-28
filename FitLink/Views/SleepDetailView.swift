@@ -1,5 +1,4 @@
 import SwiftUI
-import Charts
 
 struct SleepDetailView: View {
     @ObservedObject var viewModel: ActivitySummaryViewModel
@@ -13,61 +12,40 @@ struct SleepDetailView: View {
         }
     }
     
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                LiquidGlassDateStrip(
-                    selectedDate: $selectedDate,
-                    dateRange: dateRange
-                )
-                .padding(.horizontal, -GlassTokens.Layout.pageHorizontalPadding)
-                
-                totalValueCard
-                sleepStagesChart
-                sleepStageLegend
-                Spacer()
-            }
-            .padding(.horizontal, GlassTokens.Layout.pageHorizontalPadding)
-            .padding(.top, 16)
+    private var dateDescriptor: String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(selectedDate) {
+            return "last night"
+        } else if calendar.isDateInYesterday(selectedDate) {
+            return "night before"
+        } else {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "MMM d"
+            return formatter.string(from: selectedDate)
         }
-        .background(Color(UIColor.systemGroupedBackground))
-        .navigationTitle("Sleep")
-        .navigationBarTitleDisplayMode(.inline)
     }
     
-    private var totalValueCard: some View {
-        VStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [.indigo, .purple],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 80, height: 80)
-                
-                Image(systemName: "moon.fill")
-                    .font(.system(size: 36))
-                    .foregroundStyle(.white)
-            }
+    var body: some View {
+        MetricDetailScreen(
+            title: "Sleep",
+            viewModel: viewModel,
+            selectedDate: $selectedDate,
+            dateRange: dateRange
+        ) {
+            MetricValueCard(
+                iconName: "moon.fill",
+                iconGradient: [.indigo, .purple],
+                value: viewModel.formattedSleepHours,
+                subtitle: "hours of sleep \(dateDescriptor)"
+            )
             
-            Text(viewModel.formattedSleepHours)
-                .font(.system(size: 48, weight: .bold))
-                .monospacedDigit()
-            
-            Text("hours of sleep")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            sleepStagesChart
+            sleepStageLegend
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 32)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: GlassTokens.Radius.card, style: .continuous))
     }
     
     private var sleepStagesChart: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: GlassTokens.Padding.standard) {
             Text("Sleep Stages")
                 .font(.headline)
             
@@ -75,7 +53,7 @@ struct SleepDetailView: View {
                 Text("No sleep data available")
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 40)
+                    .padding(.vertical, GlassTokens.Padding.hero)
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -104,30 +82,30 @@ struct SleepDetailView: View {
                             ForEach(0..<9) { i in
                                 let hour = (23 + i) % 24
                                 Text(formatHour(hour))
-                                    .font(.system(size: 10))
+                                    .font(.system(size: GlassTokens.FixedTypography.chartLabel))
                                     .foregroundStyle(.secondary)
                                     .frame(width: 66.5, alignment: .leading)
                             }
                         }
                         .padding(.horizontal, 4)
-                        .padding(.top, 8)
+                        .padding(.top, GlassTokens.Padding.small)
                     }
                 }
             }
         }
-        .padding(16)
+        .padding(GlassTokens.Padding.standard)
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: GlassTokens.Radius.card, style: .continuous))
     }
     
     private var sleepStageLegend: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: GlassTokens.Padding.compact) {
             Text("Sleep Stages")
                 .font(.headline)
             
-            VStack(spacing: 8) {
+            VStack(spacing: GlassTokens.Padding.small) {
                 ForEach(SleepStage.allCases, id: \.self) { stage in
-                    HStack(spacing: 12) {
+                    HStack(spacing: GlassTokens.Padding.compact) {
                         RoundedRectangle(cornerRadius: 4)
                             .fill(stage.color)
                             .frame(width: 24, height: 16)
@@ -144,7 +122,7 @@ struct SleepDetailView: View {
                 }
             }
         }
-        .padding(16)
+        .padding(GlassTokens.Padding.standard)
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: GlassTokens.Radius.card, style: .continuous))
     }

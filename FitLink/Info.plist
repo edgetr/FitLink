@@ -31,11 +31,19 @@
 	<string>FitLink needs access to your health data to display your daily steps, active energy, exercise minutes, heart rate, and sleep analysis on the dashboard and activity summary screens.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>FitLink needs access to update your health data to track workout progress.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>FitLink needs access to your camera to take profile photos.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>FitLink needs access to your photo library to select profile photos.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>processing</string>
+	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.edgetr.FitLink.healthsync</string>
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>

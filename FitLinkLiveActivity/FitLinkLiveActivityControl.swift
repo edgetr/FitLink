@@ -9,46 +9,74 @@ import AppIntents
 import SwiftUI
 import WidgetKit
 
+// MARK: - Control Widget
+
 struct FitLinkLiveActivityControl: ControlWidget {
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(
-            kind: "com.edgetr.FitLink.FitLinkLiveActivity",
-            provider: Provider()
+            kind: "com.edgetr.FitLink.FocusTimerControl",
+            provider: FocusTimerControlProvider()
         ) { value in
             ControlWidgetToggle(
-                "Start Timer",
+                "Focus Timer",
                 isOn: value,
-                action: StartTimerIntent()
+                action: ToggleFocusTimerIntent()
             ) { isRunning in
-                Label(isRunning ? "On" : "Off", systemImage: "timer")
+                Label(isRunning ? "Running" : "Paused", systemImage: isRunning ? "brain.head.profile" : "pause.fill")
             }
         }
-        .displayName("Timer")
-        .description("A an example control that runs a timer.")
+        .displayName("Focus Timer")
+        .description("Pause or resume your current focus session.")
     }
 }
 
+// MARK: - Control Value Provider
+
 extension FitLinkLiveActivityControl {
-    struct Provider: ControlValueProvider {
+    struct FocusTimerControlProvider: ControlValueProvider {
         var previewValue: Bool {
-            false
+            true
         }
 
         func currentValue() async throws -> Bool {
-            let isRunning = true // Check if the timer is running
-            return isRunning
+            guard let state = FocusTimerSharedState.read() else {
+                return false
+            }
+            return state.isActive && state.timerState == .running
         }
     }
 }
 
-struct StartTimerIntent: SetValueIntent {
-    static let title: LocalizedStringResource = "Start a timer"
+// MARK: - Toggle Intent
+
+struct ToggleFocusTimerIntent: SetValueIntent {
+    static let title: LocalizedStringResource = "Toggle Focus Timer"
 
     @Parameter(title: "Timer is running")
     var value: Bool
 
     func perform() async throws -> some IntentResult {
-        // Start / stop the timer based on `value`.
+        if value {
+            FocusTimerCommand.resume.write()
+        } else {
+            FocusTimerCommand.pause.write()
+        }
+        
+        WidgetCenter.shared.reloadTimelines(ofKind: "FocusTimerWidget")
+        
+        return .result()
+    }
+}
+
+// MARK: - Stop Focus Intent
+
+struct StopFocusTimerIntent: AppIntent {
+    static let title: LocalizedStringResource = "Stop Focus Timer"
+    static let description = IntentDescription("Stops the current focus session")
+    
+    func perform() async throws -> some IntentResult {
+        FocusTimerCommand.stop.write()
+        WidgetCenter.shared.reloadTimelines(ofKind: "FocusTimerWidget")
         return .result()
     }
 }

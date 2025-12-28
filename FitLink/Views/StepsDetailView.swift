@@ -1,5 +1,4 @@
 import SwiftUI
-import Charts
 
 struct StepsDetailView: View {
     @ObservedObject var viewModel: ActivitySummaryViewModel
@@ -13,112 +12,83 @@ struct StepsDetailView: View {
         }
     }
     
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                LiquidGlassDateStrip(
-                    selectedDate: $selectedDate,
-                    dateRange: dateRange
-                )
-                .padding(.horizontal, -GlassTokens.Layout.pageHorizontalPadding)
-                
-                totalValueCard
-                hourlyChartSection
-                Spacer()
-            }
-            .padding(.horizontal, GlassTokens.Layout.pageHorizontalPadding)
-            .padding(.top, 16)
+    private var dateDescriptor: String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(selectedDate) {
+            return "today"
+        } else if calendar.isDateInYesterday(selectedDate) {
+            return "yesterday"
+        } else {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "MMM d"
+            return formatter.string(from: selectedDate)
         }
-        .background(Color(UIColor.systemGroupedBackground))
-        .navigationTitle("Steps")
-        .navigationBarTitleDisplayMode(.inline)
     }
     
-    private var totalValueCard: some View {
-        VStack(spacing: 12) {
+    var body: some View {
+        MetricDetailScreen(
+            title: "Steps",
+            viewModel: viewModel,
+            selectedDate: $selectedDate,
+            dateRange: dateRange
+        ) {
+            MetricValueCard(
+                iconName: "figure.walk",
+                iconGradient: [.blue, .cyan],
+                value: viewModel.formattedSteps,
+                subtitle: "steps taken \(dateDescriptor)"
+            )
+            
+            HourlyBarChart(
+                title: "Hourly Breakdown",
+                dataPoints: viewModel.hourlySteps,
+                gradientColors: [.blue, .cyan],
+                highlightGradientColors: [.green, .cyan],
+                valueMultiplier: 0.1
+            )
+        }
+    }
+}
+
+struct MetricValueCard: View {
+    let iconName: String
+    let iconGradient: [Color]
+    let value: String
+    let subtitle: String
+    var accessibilityLabel: String? = nil
+    
+    var body: some View {
+        VStack(spacing: GlassTokens.Padding.compact) {
             ZStack {
                 Circle()
                     .fill(
                         LinearGradient(
-                            colors: [.blue, .cyan],
+                            colors: iconGradient,
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
                     )
-                    .frame(width: 80, height: 80)
+                    .frame(width: GlassTokens.MetricCard.iconCircleSize, height: GlassTokens.MetricCard.iconCircleSize)
                 
-                Image(systemName: "figure.walk")
-                    .font(.system(size: 36))
+                Image(systemName: iconName)
+                    .font(.system(size: GlassTokens.IconSize.metric))
                     .foregroundStyle(.white)
+                    .accessibilityHidden(true)
             }
             
-            Text(viewModel.formattedSteps)
-                .font(.system(size: 48, weight: .bold))
+            Text(value)
+                .font(.system(size: GlassTokens.MetricCard.primaryValueSize, weight: .bold))
                 .monospacedDigit()
             
-            Text("steps taken today")
+            Text(subtitle)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 32)
+        .padding(.vertical, GlassTokens.Padding.large)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: GlassTokens.Radius.card, style: .continuous))
-    }
-    
-    private var hourlyChartSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Hourly Breakdown")
-                .font(.headline)
-            
-            if viewModel.hourlySteps.isEmpty {
-                Text("No data available")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 40)
-            } else {
-                ScrollViewReader { proxy in
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(alignment: .bottom, spacing: 8) {
-                            ForEach(viewModel.hourlySteps) { dataPoint in
-                                VStack(spacing: 4) {
-                                    if dataPoint.value > 0 {
-                                        Text("\(Int(dataPoint.value))")
-                                            .font(.system(size: 8, weight: .medium))
-                                            .foregroundStyle(dataPoint.isCurrentHour ? .primary : .secondary)
-                                    }
-                                    
-                                    RoundedRectangle(cornerRadius: 4)
-                                        .fill(
-                                            dataPoint.isCurrentHour ?
-                                            LinearGradient(colors: [.green, .cyan], startPoint: .bottom, endPoint: .top) :
-                                            LinearGradient(colors: [.blue, .cyan], startPoint: .bottom, endPoint: .top)
-                                        )
-                                        .frame(width: 28, height: max(4, CGFloat(dataPoint.value) / 10))
-                                    
-                                    Text(dataPoint.hourLabel)
-                                        .font(.system(size: 9))
-                                        .foregroundStyle(dataPoint.isCurrentHour ? .primary : .secondary)
-                                        .fontWeight(dataPoint.isCurrentHour ? .bold : .regular)
-                                        .fixedSize(horizontal: true, vertical: false)
-                                }
-                                .id(dataPoint.hour)
-                            }
-                        }
-                        .frame(height: 240)
-                        .padding(.horizontal, 8)
-                    }
-                    .onAppear {
-                        let currentHour = Calendar.current.component(.hour, from: Date())
-                        withAnimation {
-                            proxy.scrollTo(max(0, currentHour - 2), anchor: .leading)
-                        }
-                    }
-                }
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: GlassTokens.Radius.card, style: .continuous))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel ?? "\(value) \(subtitle)")
     }
 }
 

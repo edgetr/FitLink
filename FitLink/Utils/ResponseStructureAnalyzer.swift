@@ -229,7 +229,7 @@ struct ResponseStructureAnalyzer {
             return try decoder.decode(type, from: data)
         } catch {
             #if DEBUG
-            print("[ResponseStructureAnalyzer] Failed to decode: \(error)")
+            AppLogger.shared.debug("Failed to decode: \(error.localizedDescription)", category: .ai)
             #endif
             return nil
         }

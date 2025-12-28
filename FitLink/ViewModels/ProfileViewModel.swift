@@ -3,7 +3,6 @@ import SwiftUI
 import UIKit
 import Combine
 
-/// ViewModel for managing user profile editing, image upload, and profile settings
 @MainActor
 final class ProfileViewModel: ObservableObject {
     
@@ -11,6 +10,7 @@ final class ProfileViewModel: ObservableObject {
     
     private let sessionManager: SessionManager
     private let userService = UserService.shared
+    private let permissionCoordinator = PermissionCoordinator.shared
     
     // MARK: - Published Properties
     
@@ -94,7 +94,6 @@ final class ProfileViewModel: ObservableObject {
     
     // MARK: - Public Methods
     
-    /// Load the current user data into the form
     func loadUserData() {
         if let user = sessionManager.user {
             displayName = user.displayName
@@ -105,37 +104,48 @@ final class ProfileViewModel: ObservableObject {
             originalDisplayName = name
         }
         
-        // Reset image state
         selectedImage = nil
         hasRemovedImage = false
     }
     
-    /// Refresh profile data from the server
     func refreshProfile() async {
         await sessionManager.refreshUser()
         loadUserData()
     }
     
-    /// Select image from camera
-    func selectImageFromCamera() {
+    func selectImageFromCamera() async {
         guard isCameraAvailable else { return }
+        
+        if !permissionCoordinator.isCameraAuthorized {
+            let granted = await permissionCoordinator.requestCamera()
+            if !granted {
+                errorMessage = UserFriendlyErrorMessages.Permission.camera
+                return
+            }
+        }
+        
         imagePickerSourceType = .camera
         showingImagePicker = true
     }
     
-    /// Select image from photo library
-    func selectImageFromLibrary() {
+    func selectImageFromLibrary() async {
+        if !permissionCoordinator.isPhotoLibraryAuthorized {
+            let granted = await permissionCoordinator.requestPhotoLibrary()
+            if !granted {
+                errorMessage = UserFriendlyErrorMessages.Permission.photoLibrary
+                return
+            }
+        }
+        
         imagePickerSourceType = .photoLibrary
         showingImagePicker = true
     }
     
-    /// Mark the profile image for removal
     func removeProfileImage() {
         selectedImage = nil
         hasRemovedImage = true
     }
     
-    /// Save all profile changes
     func saveProfile() async {
         guard let userId = sessionManager.currentUserID else {
             errorMessage = "No user logged in"
@@ -176,14 +186,13 @@ final class ProfileViewModel: ObservableObject {
             successMessage = "Profile updated successfully"
             
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = ErrorHandler.shared.handle(error, context: "saveProfile").userMessage
             isUploadingImage = false
         }
         
         isSaving = false
     }
     
-    /// Discard any unsaved changes
     func discardChanges() {
         displayName = originalDisplayName
         selectedImage = nil
@@ -191,26 +200,21 @@ final class ProfileViewModel: ObservableObject {
         clearMessages()
     }
     
-    /// Clear error and success messages
     func clearMessages() {
         errorMessage = nil
         successMessage = nil
     }
     
-    /// Clear only the error message
     func clearError() {
         errorMessage = nil
     }
     
-    /// Clear only the success message
     func clearSuccess() {
         successMessage = nil
     }
     
-    /// Handle image selection from picker
     func handleSelectedImage(_ image: UIImage?) {
         if let image = image {
-            // Resize image if needed
             selectedImage = resizeImage(image, maxSize: CGSize(width: 500, height: 500))
             hasRemovedImage = false
         }

@@ -14,6 +14,8 @@ struct FeatureFlags {
         static let liveActivity = "feature_live_activity"
         static let hapticFeedback = "feature_haptic_feedback"
         static let advancedAnalytics = "feature_advanced_analytics"
+        static let accountDeletion = "feature_account_deletion"
+        static let dataExport = "feature_data_export"
     }
     
     // MARK: - Feature Toggle Properties
@@ -60,6 +62,18 @@ struct FeatureFlags {
         set { UserDefaults.standard.set(newValue, forKey: Keys.advancedAnalytics) }
     }
     
+    /// Whether account deletion is available (requires backend support)
+    static var isAccountDeletionEnabled: Bool {
+        get { UserDefaults.standard.bool(forKey: Keys.accountDeletion, defaultValue: true) }
+        set { UserDefaults.standard.set(newValue, forKey: Keys.accountDeletion) }
+    }
+    
+    /// Whether data export functionality is available
+    static var isDataExportEnabled: Bool {
+        get { UserDefaults.standard.bool(forKey: Keys.dataExport, defaultValue: false) }
+        set { UserDefaults.standard.set(newValue, forKey: Keys.dataExport) }
+    }
+    
     // MARK: - Reset
     
     /// Reset all feature flags to their default values
@@ -71,6 +85,8 @@ struct FeatureFlags {
         isLiveActivityEnabled = true
         isHapticFeedbackEnabled = true
         isAdvancedAnalyticsEnabled = false
+        isAccountDeletionEnabled = true
+        isDataExportEnabled = false
     }
     
     // MARK: - Debug
@@ -85,6 +101,8 @@ struct FeatureFlags {
         isLiveActivityEnabled = true
         isHapticFeedbackEnabled = true
         isAdvancedAnalyticsEnabled = true
+        isAccountDeletionEnabled = true
+        isDataExportEnabled = true
     }
     
     /// Disable all features for testing minimal mode
@@ -96,6 +114,8 @@ struct FeatureFlags {
         isLiveActivityEnabled = false
         isHapticFeedbackEnabled = false
         isAdvancedAnalyticsEnabled = false
+        isAccountDeletionEnabled = false
+        isDataExportEnabled = false
     }
     #endif
 }

@@ -20,11 +20,7 @@ class WorkoutsViewModel: ObservableObject {
     @Published var showPreviewModal = false
     @Published var hasSeenWorkoutOnboarding: Bool
     
-    @Published var questionQueue: [FollowUpQuestion] = []
-    @Published var currentQuestionIndex: Int = 0
-    @Published var wizardAnswers: [String: AnswerValue] = [:]
     @Published var flowState: WizardFlowState = .idle
-    @Published var isWizardVisible = false
     @Published var planSelection: PlanSelection?
     
     @Published var selectedDayIndex: Int = 0
@@ -33,8 +29,21 @@ class WorkoutsViewModel: ObservableObject {
     @Published var shareItems: [Any] = []
     @Published var isShowingShareSheet = false
     
+    @Published var chatMessages: [ChatMessage] = []
+    @Published var isProcessingMessage: Bool = false
+    @Published var currentGenerationId: String?
+    @Published var readySummary: String?
+    
+    var isConversing: Bool { flowState == .conversing }
+    var isReadyToGenerate: Bool { flowState == .readyToGenerate }
+    var canSendMessage: Bool { flowState == .conversing && !isProcessingMessage }
+    var messageCount: Int { chatMessages.filter { $0.role == .user }.count }
+    var isAtMaxMessages: Bool { messageCount >= PendingGeneration.maxMessages }
+    
     private let geminiService: GeminiAIService
+    private let planGenerationService = PlanGenerationService.shared
     private let workoutPlanService = WorkoutPlanService.shared
+    private let contextProvider = UserContextProvider.shared
     private var cancellables = Set<AnyCancellable>()
     private let maxRetryAttempts = 3
     
@@ -67,27 +76,73 @@ class WorkoutsViewModel: ObservableObject {
         homePlan != nil || gymPlan != nil
     }
     
-    var currentQuestion: FollowUpQuestion? {
-        guard currentQuestionIndex < questionQueue.count else { return nil }
-        return questionQueue[currentQuestionIndex]
-    }
-    
     // MARK: - UserDefaults Keys
     private enum PersistenceKeys {
         static let preferences = "workout_planner_preferences"
-        static let questionQueue = "workout_planner_question_queue"
-        static let currentQuestionIndex = "workout_planner_current_question_index"
-        static let wizardAnswers = "workout_planner_wizard_answers"
-        static let flowState = "workout_planner_flow_state"
         static let planSelection = "workout_planner_plan_selection"
-        static let isWizardVisible = "workout_planner_is_wizard_visible"
+        static let chatMessages = "workout_planner_chat_messages"
+        static let generationId = "workout_planner_generation_id"
+        static let readySummary = "workout_planner_ready_summary"
+        static let isReady = "workout_planner_is_ready"
+        static let isGenerating = "workout_planner_is_generating"
     }
     
     init() {
         self.geminiService = GeminiAIService()
         self.hasSeenWorkoutOnboarding = UserDefaults.standard.bool(forKey: "workout_planner_onboarding_seen")
         
-        restoreWizardState()
+        restoreConversationState()
+        setupNotificationObservers()
+    }
+    
+    private func setupNotificationObservers() {
+        NotificationCenter.default.addObserver(
+            forName: .planGenerationCompleted,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            Task { @MainActor [weak self] in
+                self?.handleGenerationCompletedNotification(notification)
+            }
+        }
+    }
+    
+    private func handleGenerationCompletedNotification(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let planTypeRaw = userInfo["planType"] as? String,
+              let planType = GenerationPlanType(rawValue: planTypeRaw) else {
+            return
+        }
+        
+        guard planType == .workoutHome || planType == .workoutGym else { return }
+        
+        guard let resultPlanId = userInfo["resultPlanId"] as? String,
+              !resultPlanId.isEmpty else {
+            return
+        }
+        
+        Task { @MainActor in
+            do {
+                if let doc = try await workoutPlanService.loadPlan(byId: resultPlanId) {
+                    switch doc.planType {
+                    case .home:
+                        homePlanDocument = doc
+                        homePlan = doc.plan
+                    case .gym:
+                        gymPlanDocument = doc
+                        gymPlan = doc.plan
+                    }
+                    flowState = .planReady
+                    clearConversationState()
+                }
+            } catch {
+                log("Error loading completed plan: \(error)")
+            }
+        }
+    }
+    
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
     
     func loadAllPlansForUser() async {
@@ -120,88 +175,282 @@ class WorkoutsViewModel: ObservableObject {
         isLoadingPlans = false
     }
     
-    func startWizard(fromPrompt prompt: String) async {
-        guard !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+    func startConversation(initialPrompt: String) async {
+        guard !initialPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             errorMessage = "Please enter your workout preferences."
             return
         }
         
-        preferences = prompt
-        flowState = .fetchingQuestions
-        isWizardVisible = true
-        questionQueue = []
-        currentQuestionIndex = 0
-        wizardAnswers = [:]
+        guard let userId = userId else {
+            errorMessage = "User not authenticated."
+            return
+        }
         
-        saveWizardState()
+        chatMessages = []
+        readySummary = nil
+        errorMessage = nil
+        preferences = initialPrompt
+        
+        let userMessage = ChatMessage.user(initialPrompt)
+        chatMessages.append(userMessage)
+        
+        flowState = .conversing
+        isProcessingMessage = true
+        
+        let planTypes = planSelection?.planTypes ?? [.home, .gym]
+        let generationPlanType: GenerationPlanType = planTypes.contains(.gym) ? .workoutGym : .workoutHome
         
         do {
-            let planTypes = planSelection?.planTypes ?? [.home, .gym]
-            let clarifyingPrompt = WorkoutPromptBuilder.buildClarifyingQuestionsPrompt(
-                userInput: prompt,
-                planTypes: planTypes
+            let generation = try await planGenerationService.createPendingGeneration(
+                userId: userId,
+                planType: generationPlanType,
+                initialPrompt: initialPrompt
+            )
+            currentGenerationId = generation.id
+            
+            let response = try await geminiService.sendWorkoutConversation(
+                conversationHistory: chatMessages,
+                collectedContext: initialPrompt,
+                planTypes: planTypes,
+                isForced: false
             )
             
-            let response = try await geminiService.askClarifyingQuestions(clarifyingPrompt)
-            let jsonString = GeminiAIService.extractJSON(from: response)
+            let assistantMessage = ChatMessage.assistant(
+                response.message,
+                type: response.responseType
+            )
+            chatMessages.append(assistantMessage)
             
-            guard let data = jsonString.data(using: .utf8) else {
-                throw WorkoutGenerationError.parsingFailed
+            try await planGenerationService.addMessage(
+                generationId: generation.id,
+                message: assistantMessage,
+                updatedContext: initialPrompt
+            )
+            
+            if response.responseType == .ready {
+                readySummary = response.summary
+                flowState = .readyToGenerate
             }
             
-            let clarificationResponse = try JSONDecoder().decode(ClarificationResponse.self, from: data)
+            saveConversationState()
             
-            if clarificationResponse.needsClarification, let questions = clarificationResponse.questions {
-                questionQueue = questions
-                flowState = .askingFollowUps
-                saveWizardState()
-            } else {
-                clearWizardState()
-                await startGeneration()
-            }
         } catch {
-            log("Error fetching clarifications: \(error)")
-            clearWizardState()
-            await startGeneration()
+            log("Error starting conversation: \(error)")
+            errorMessage = "Failed to start conversation. Please try again."
+            flowState = .idle
         }
-    }
-    
-    func nextQuestion(withAnswer answer: AnswerValue) {
-        guard let question = currentQuestion else { return }
         
-        wizardAnswers[question.text] = answer
+        isProcessingMessage = false
+    }
+    
+    func sendMessage(_ text: String) async {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard let generationId = currentGenerationId else {
+            errorMessage = "No active conversation."
+            return
+        }
         
-        if currentQuestionIndex < questionQueue.count - 1 {
-            currentQuestionIndex += 1
-        } else {
-            finishWizard()
+        let userMessage = ChatMessage.user(text)
+        chatMessages.append(userMessage)
+        
+        isProcessingMessage = true
+        
+        let updatedContext = GeminiAIService.accumulateContext(
+            existingContext: preferences,
+            newUserMessage: text
+        )
+        preferences = updatedContext
+        
+        let isForced = messageCount >= PendingGeneration.maxMessages
+        let planTypes = planSelection?.planTypes ?? [.home, .gym]
+        
+        do {
+            try await planGenerationService.addMessage(
+                generationId: generationId,
+                message: userMessage,
+                updatedContext: updatedContext
+            )
+            
+            let response = try await geminiService.sendWorkoutConversation(
+                conversationHistory: chatMessages,
+                collectedContext: updatedContext,
+                planTypes: planTypes,
+                isForced: isForced
+            )
+            
+            let assistantMessage = ChatMessage.assistant(
+                response.message,
+                type: response.responseType
+            )
+            chatMessages.append(assistantMessage)
+            
+            try await planGenerationService.addMessage(
+                generationId: generationId,
+                message: assistantMessage,
+                updatedContext: updatedContext
+            )
+            
+            if response.responseType == .ready {
+                readySummary = response.summary
+                flowState = .readyToGenerate
+            }
+            
+            saveConversationState()
+            
+        } catch {
+            log("Error sending message: \(error)")
+            errorMessage = "Failed to send message."
+            chatMessages.removeLast()
         }
-        saveWizardState()
+        
+        isProcessingMessage = false
     }
     
-    func skipCurrent() {
-        if currentQuestionIndex < questionQueue.count - 1 {
-            currentQuestionIndex += 1
-        } else {
-            finishWizard()
+    func requestMoreQuestions() async {
+        guard let generationId = currentGenerationId else { return }
+        
+        let userMessage = ChatMessage.user("I'd like to share more details about my fitness goals.")
+        chatMessages.append(userMessage)
+        
+        flowState = .conversing
+        isProcessingMessage = true
+        
+        let planTypes = planSelection?.planTypes ?? [.home, .gym]
+        
+        do {
+            try await planGenerationService.addMessage(
+                generationId: generationId,
+                message: userMessage,
+                updatedContext: preferences
+            )
+            
+            let response = try await geminiService.sendWorkoutConversation(
+                conversationHistory: chatMessages,
+                collectedContext: preferences,
+                planTypes: planTypes,
+                isForced: false
+            )
+            
+            let assistantMessage = ChatMessage.assistant(
+                response.message,
+                type: response.responseType
+            )
+            chatMessages.append(assistantMessage)
+            
+            try await planGenerationService.addMessage(
+                generationId: generationId,
+                message: assistantMessage,
+                updatedContext: preferences
+            )
+            
+            if response.responseType == .ready {
+                readySummary = response.summary
+                flowState = .readyToGenerate
+            }
+            
+            saveConversationState()
+            
+        } catch {
+            log("Error requesting more questions: \(error)")
+            errorMessage = "Failed to continue conversation."
         }
-        saveWizardState()
+        
+        isProcessingMessage = false
     }
     
-    func finishWizard() {
-        clearWizardState()
-        Task {
+    func startPlanGeneration() async {
+        guard let userId = userId else {
+            errorMessage = "User not authenticated."
+            return
+        }
+        
+        guard let generationId = currentGenerationId else {
             await startGeneration()
+            return
+        }
+        
+        flowState = .generatingPlan
+        errorMessage = nil
+        
+        do {
+            try await planGenerationService.startGeneration(generationId)
+            
+            let planTypes = planSelection?.planTypes ?? [.home, .gym]
+            await startGeneration(for: planTypes)
+            
+            if homePlan != nil || gymPlan != nil {
+                let resultId = homePlanDocument?.id ?? gymPlanDocument?.id ?? ""
+                try await planGenerationService.markCompleted(
+                    generationId: generationId,
+                    resultPlanId: resultId
+                )
+                
+                let planType: GenerationPlanType = planTypes.contains(.gym) ? .workoutGym : .workoutHome
+                try? await NotificationService.shared.schedulePlanCompleteNotification(
+                    planType: planType,
+                    planName: "Workout Plan"
+                )
+                
+                try await planGenerationService.markNotificationSent(generationId)
+            }
+            
+            clearConversationState()
+            
+        } catch {
+            log("Error during generation: \(error)")
+            
+            if let generationId = currentGenerationId {
+                try? await planGenerationService.markFailed(
+                    generationId: generationId,
+                    error: error.localizedDescription
+                )
+            }
         }
     }
     
-    func cancelWizard() {
-        isWizardVisible = false
-        flowState = .idle
-        questionQueue = []
-        currentQuestionIndex = 0
-        wizardAnswers = [:]
-        clearWizardState()
+    func checkPendingGenerations() async {
+        guard let userId = userId else { return }
+        
+        do {
+            let generatingList = try await planGenerationService.loadGeneratingPhase(userId: userId)
+            
+            for generation in generatingList {
+                if generation.planType == .workoutHome || generation.planType == .workoutGym {
+                    currentGenerationId = generation.id
+                    chatMessages = generation.conversationHistory
+                    preferences = generation.collectedContext
+                    flowState = .generatingPlan
+                    
+                    await startPlanGeneration()
+                    return
+                }
+            }
+            
+            let completedList = try await planGenerationService.loadCompletedUnnotified(userId: userId)
+            
+            for generation in completedList {
+                if generation.planType == .workoutHome || generation.planType == .workoutGym {
+                    if let planId = generation.resultPlanId,
+                       let doc = try await workoutPlanService.loadPlan(byId: planId) {
+                        switch doc.planType {
+                        case .home:
+                            homePlanDocument = doc
+                            homePlan = doc.plan
+                        case .gym:
+                            gymPlanDocument = doc
+                            gymPlan = doc.plan
+                        }
+                        flowState = .planReady
+                        
+                        try await planGenerationService.markNotificationSent(generation.id)
+                        return
+                    }
+                }
+            }
+            
+        } catch {
+            log("Error checking pending generations: \(error)")
+        }
     }
     
     func startGeneration() async {
@@ -234,7 +483,6 @@ class WorkoutsViewModel: ObservableObject {
         
         if homePlan != nil || gymPlan != nil {
             flowState = .planReady
-            isWizardVisible = false
         } else if errorMessage != nil {
             flowState = .failed(errorMessage ?? "Unknown error")
         } else {
@@ -248,15 +496,38 @@ class WorkoutsViewModel: ObservableObject {
         
         do {
             homeProgress = 0.1
+            
+            // Fetch user context for personalization
+            let userContext = try? await contextProvider.getContext(for: userId)
+            let contextString = userContext?.formatForPrompt() ?? ""
+            
+            homeProgress = 0.2
+            log("Generating home plan with user context (completeness: \(Int((userContext?.profile?.profileCompleteness ?? 0) * 100))%)")
+            
+            // Build prompt with context
+            var fullPreferences = preferences
+            if !contextString.isEmpty {
+                fullPreferences = "USER CONTEXT:\n\(contextString)\n\nUSER REQUEST:\n\(preferences)"
+            }
+            
             let prompt = WorkoutPromptBuilder.buildHomePlanPrompt(
-                preferences: preferences,
-                additionalContext: wizardAnswers
+                preferences: fullPreferences,
+                additionalContext: [:]
             )
+            
+            let complexity = RequestComplexity.analyze(preferences: preferences)
+            let thinkingLevel: ThinkingLevel = complexity == .complexPlan ? .high : .medium
+            
+            log("Home plan using thinking: \(thinkingLevel.rawValue)")
             
             homeProgress = 0.3
             let response = try await geminiService.sendPrompt(
                 prompt,
-                systemPrompt: WorkoutPromptBuilder.systemPrompt
+                systemPrompt: WorkoutPromptBuilder.systemPrompt,
+                model: .flash,
+                thinkingLevel: thinkingLevel,
+                maxTokens: 16000,
+                temperature: 1.0
             )
             
             homeProgress = 0.6
@@ -280,11 +551,20 @@ class WorkoutsViewModel: ObservableObject {
             
             try await workoutPlanService.saveSinglePlan(doc)
             
+            // Record in plan history for learning
+            await recordPlanGeneration(
+                userId: userId,
+                planId: doc.id,
+                planType: .workoutHome,
+                preferences: preferences,
+                totalItems: plan.days.filter { !$0.isRestDay }.flatMap { $0.exercises }.count
+            )
+            
             homeProgress = 1.0
             homePlan = planWithDates
             homePlanDocument = doc
             
-            log("Home plan generated successfully")
+            log("Home plan generated successfully with personalization")
         } catch {
             log("Home plan generation failed: \(error)")
             if errorMessage == nil {
@@ -301,15 +581,36 @@ class WorkoutsViewModel: ObservableObject {
         
         do {
             gymProgress = 0.1
+            
+            let userContext = try? await contextProvider.getContext(for: userId)
+            let contextString = userContext?.formatForPrompt() ?? ""
+            
+            gymProgress = 0.2
+            log("Generating gym plan with user context (completeness: \(Int((userContext?.profile?.profileCompleteness ?? 0) * 100))%)")
+            
+            var fullPreferences = preferences
+            if !contextString.isEmpty {
+                fullPreferences = "USER CONTEXT:\n\(contextString)\n\nUSER REQUEST:\n\(preferences)"
+            }
+            
             let prompt = WorkoutPromptBuilder.buildGymPlanPrompt(
-                preferences: preferences,
-                additionalContext: wizardAnswers
+                preferences: fullPreferences,
+                additionalContext: [:]
             )
+            
+            let complexity = RequestComplexity.analyze(preferences: preferences)
+            let thinkingLevel: ThinkingLevel = complexity == .complexPlan ? .high : .medium
+            
+            log("Gym plan using thinking: \(thinkingLevel.rawValue)")
             
             gymProgress = 0.3
             let response = try await geminiService.sendPrompt(
                 prompt,
-                systemPrompt: WorkoutPromptBuilder.systemPrompt
+                systemPrompt: WorkoutPromptBuilder.systemPrompt,
+                model: .flash,
+                thinkingLevel: thinkingLevel,
+                maxTokens: 16000,
+                temperature: 1.0
             )
             
             gymProgress = 0.6
@@ -333,11 +634,19 @@ class WorkoutsViewModel: ObservableObject {
             
             try await workoutPlanService.saveSinglePlan(doc)
             
+            await recordPlanGeneration(
+                userId: userId,
+                planId: doc.id,
+                planType: .workoutGym,
+                preferences: preferences,
+                totalItems: plan.days.filter { !$0.isRestDay }.flatMap { $0.exercises }.count
+            )
+            
             gymProgress = 1.0
             gymPlan = planWithDates
             gymPlanDocument = doc
             
-            log("Gym plan generated successfully")
+            log("Gym plan generated successfully with personalization")
         } catch {
             log("Gym plan generation failed: \(error)")
             if errorMessage == nil {
@@ -374,14 +683,16 @@ class WorkoutsViewModel: ObservableObject {
         homePlanDocument = nil
         gymPlanDocument = nil
         preferences = ""
-        questionQueue = []
-        currentQuestionIndex = 0
-        wizardAnswers = [:]
+        chatMessages = []
+        currentGenerationId = nil
+        readySummary = nil
         flowState = .idle
         errorMessage = nil
         homeProgress = 0.0
         gymProgress = 0.0
         selectedDayIndex = 0
+        
+        clearConversationState()
     }
     
     func deletePlan(_ planType: WorkoutPlanType) async {
@@ -451,110 +762,101 @@ class WorkoutsViewModel: ObservableObject {
     
     func startOver() {
         preferences = ""
-        questionQueue = []
-        currentQuestionIndex = 0
-        wizardAnswers = [:]
+        chatMessages = []
+        currentGenerationId = nil
+        readySummary = nil
         flowState = .idle
-        isWizardVisible = false
-        clearWizardState()
+        clearConversationState()
     }
     
-    private func saveWizardState() {
+    private func saveConversationState() {
+        if let data = try? JSONEncoder().encode(chatMessages) {
+            UserDefaults.standard.set(data, forKey: PersistenceKeys.chatMessages)
+        }
+        UserDefaults.standard.set(currentGenerationId, forKey: PersistenceKeys.generationId)
         UserDefaults.standard.set(preferences, forKey: PersistenceKeys.preferences)
-        UserDefaults.standard.set(currentQuestionIndex, forKey: PersistenceKeys.currentQuestionIndex)
-        UserDefaults.standard.set(isWizardVisible, forKey: PersistenceKeys.isWizardVisible)
-        
-        if let data = try? JSONEncoder().encode(questionQueue) {
-            UserDefaults.standard.set(data, forKey: PersistenceKeys.questionQueue)
-        }
-        
-        if let data = try? JSONEncoder().encode(wizardAnswers) {
-            UserDefaults.standard.set(data, forKey: PersistenceKeys.wizardAnswers)
-        }
+        UserDefaults.standard.set(readySummary, forKey: PersistenceKeys.readySummary)
+        UserDefaults.standard.set(flowState == .readyToGenerate, forKey: PersistenceKeys.isReady)
+        UserDefaults.standard.set(flowState == .generatingPlan, forKey: PersistenceKeys.isGenerating)
         
         if let selection = planSelection {
             UserDefaults.standard.set(selection.rawValue, forKey: PersistenceKeys.planSelection)
         }
-        
-        let flowStateString: String
-        switch flowState {
-        case .idle: flowStateString = "idle"
-        case .fetchingQuestions: flowStateString = "fetchingQuestions"
-        case .askingFollowUps: flowStateString = "askingFollowUps"
-        case .generatingPlan: flowStateString = "generatingPlan"
-        case .planReady: flowStateString = "planReady"
-        case .failed(let error): flowStateString = "failed:\(error)"
-        }
-        UserDefaults.standard.set(flowStateString, forKey: PersistenceKeys.flowState)
     }
     
-    private func restoreWizardState() {
-        if let savedPreferences = UserDefaults.standard.string(forKey: PersistenceKeys.preferences) {
-            preferences = savedPreferences
-        }
-        
-        currentQuestionIndex = UserDefaults.standard.integer(forKey: PersistenceKeys.currentQuestionIndex)
-        isWizardVisible = UserDefaults.standard.bool(forKey: PersistenceKeys.isWizardVisible)
-        
-        if let data = UserDefaults.standard.data(forKey: PersistenceKeys.questionQueue),
-           let questions = try? JSONDecoder().decode([FollowUpQuestion].self, from: data) {
-            questionQueue = questions
-        }
-        
-        if let data = UserDefaults.standard.data(forKey: PersistenceKeys.wizardAnswers),
-           let answers = try? JSONDecoder().decode([String: AnswerValue].self, from: data) {
-            wizardAnswers = answers
-        }
-        
-        if let selectionRaw = UserDefaults.standard.string(forKey: PersistenceKeys.planSelection),
-           let selection = PlanSelection(rawValue: selectionRaw) {
-            planSelection = selection
-        }
-        
-        if let flowStateString = UserDefaults.standard.string(forKey: PersistenceKeys.flowState) {
-            if flowStateString == "askingFollowUps" && !questionQueue.isEmpty {
-                flowState = .askingFollowUps
-            } else {
-                flowState = .idle
+    private func restoreConversationState() {
+        if let data = UserDefaults.standard.data(forKey: PersistenceKeys.chatMessages),
+           let messages = try? JSONDecoder().decode([ChatMessage].self, from: data) {
+            chatMessages = messages
+            
+            if !messages.isEmpty {
+                currentGenerationId = UserDefaults.standard.string(forKey: PersistenceKeys.generationId)
+                preferences = UserDefaults.standard.string(forKey: PersistenceKeys.preferences) ?? ""
+                readySummary = UserDefaults.standard.string(forKey: PersistenceKeys.readySummary)
+                
+                if let selectionRaw = UserDefaults.standard.string(forKey: PersistenceKeys.planSelection),
+                   let selection = PlanSelection(rawValue: selectionRaw) {
+                    planSelection = selection
+                }
+                
+                let isGenerating = UserDefaults.standard.bool(forKey: PersistenceKeys.isGenerating)
+                let isReady = UserDefaults.standard.bool(forKey: PersistenceKeys.isReady)
+                
+                if isGenerating {
+                    flowState = .generatingPlan
+                } else if isReady {
+                    flowState = .readyToGenerate
+                } else {
+                    flowState = .conversing
+                }
             }
         }
     }
     
-    private func clearWizardState() {
+    private func clearConversationState() {
+        UserDefaults.standard.removeObject(forKey: PersistenceKeys.chatMessages)
+        UserDefaults.standard.removeObject(forKey: PersistenceKeys.generationId)
         UserDefaults.standard.removeObject(forKey: PersistenceKeys.preferences)
-        UserDefaults.standard.removeObject(forKey: PersistenceKeys.questionQueue)
-        UserDefaults.standard.removeObject(forKey: PersistenceKeys.currentQuestionIndex)
-        UserDefaults.standard.removeObject(forKey: PersistenceKeys.wizardAnswers)
-        UserDefaults.standard.removeObject(forKey: PersistenceKeys.flowState)
-        UserDefaults.standard.removeObject(forKey: PersistenceKeys.planSelection)
-        UserDefaults.standard.removeObject(forKey: PersistenceKeys.isWizardVisible)
+        UserDefaults.standard.removeObject(forKey: PersistenceKeys.readySummary)
+        UserDefaults.standard.removeObject(forKey: PersistenceKeys.isReady)
+        UserDefaults.standard.removeObject(forKey: PersistenceKeys.isGenerating)
+        
+        chatMessages = []
+        currentGenerationId = nil
+        readySummary = nil
     }
     
     private func mapError(_ error: Error) -> String {
-        if let apiError = error as? GeminiAIService.APIError {
-            return apiError.errorDescription ?? "An error occurred."
+        let appError = ErrorHandler.shared.handle(error, context: "WorkoutPlanGeneration")
+        return appError.userMessage
+    }
+    
+    private func recordPlanGeneration(
+        userId: String,
+        planId: String,
+        planType: PlanHistoryType,
+        preferences: String,
+        totalItems: Int
+    ) async {
+        let entry = PlanHistoryEntry(
+            planId: planId,
+            planType: planType,
+            preferences: preferences,
+            completionRate: 0,
+            completedItems: 0,
+            totalItems: totalItems
+        )
+        
+        do {
+            try await PlanHistoryService.shared.addEntry(entry, userId: userId)
+            log("Recorded plan generation in history")
+        } catch {
+            log("Failed to record plan in history: \(error)")
         }
-        if let genError = error as? WorkoutGenerationError {
-            return genError.errorDescription ?? "Failed to generate workout plan."
-        }
-        return "An unexpected error occurred. Please try again."
     }
     
     private func log(_ message: String) {
-        #if DEBUG
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-        print("[\(timestamp)] [WorkoutsVM] \(message)")
-        #endif
-    }
-}
-
-private struct ClarificationResponse: Decodable {
-    let needsClarification: Bool
-    let questions: [FollowUpQuestion]?
-    
-    enum CodingKeys: String, CodingKey {
-        case needsClarification = "needs_clarification"
-        case questions
+        appLog(message, category: .workout)
     }
 }
 

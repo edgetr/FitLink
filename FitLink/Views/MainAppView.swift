@@ -2,18 +2,25 @@ import SwiftUI
 
 struct MainAppView: View {
     @EnvironmentObject var sessionManager: SessionManager
+    @StateObject private var memoryToastManager = MemoryToastManager.shared
     
     var body: some View {
-        Group {
-            if sessionManager.isLoading {
-                LoadingView()
-            } else if sessionManager.isAuthenticated {
-                DashboardView()
-            } else {
-                AuthFlowView()
+        ZStack {
+            Group {
+                if sessionManager.isLoading {
+                    LoadingView()
+                } else if sessionManager.isAuthenticated {
+                    DashboardView()
+                } else {
+                    AuthFlowView()
+                }
             }
+            .animation(.easeInOut(duration: 0.3), value: sessionManager.isAuthenticated)
         }
-        .animation(.easeInOut(duration: 0.3), value: sessionManager.isAuthenticated)
+        .overlay(alignment: .top) {
+            MemoryToastOverlay()
+                .environmentObject(memoryToastManager)
+        }
     }
 }
 

@@ -32,8 +32,11 @@ struct WorkoutsView: View {
                 }
             }
             .onAppear {
-                if let userId = sessionManager.user?.id {
+                if let userId = sessionManager.currentUserID {
                     viewModel.userId = userId
+                    Task {
+                        await viewModel.checkPendingGenerations()
+                    }
                 }
             }
         }
@@ -44,18 +47,44 @@ struct WorkoutsView: View {
         if viewModel.isLoadingPlans {
             WorkoutLoadingView(message: "Loading your workout plans...")
         } else if viewModel.isGenerating {
-            WorkoutGenerationView(viewModel: viewModel)
+            WorkoutGenerationView(viewModel: viewModel, canCloseApp: true)
         } else if case .failed(let error) = viewModel.flowState {
             WorkoutErrorView(error: error, viewModel: viewModel)
-        } else if case .askingFollowUps = viewModel.flowState {
-            WorkoutPlannerView(viewModel: viewModel)
-        } else if case .fetchingQuestions = viewModel.flowState {
-            WorkoutLoadingView(message: "Analyzing your request...")
+        } else if viewModel.flowState == .conversing || viewModel.flowState == .readyToGenerate {
+            WorkoutChatView(viewModel: viewModel)
         } else if viewModel.hasActivePlans {
             WorkoutsResultsView(viewModel: viewModel)
         } else {
             WorkoutInputView(viewModel: viewModel)
         }
+    }
+}
+
+private struct WorkoutChatView: View {
+    @ObservedObject var viewModel: WorkoutsViewModel
+    
+    var body: some View {
+        ChatConversationView(
+            messages: viewModel.chatMessages,
+            isLoading: viewModel.isProcessingMessage,
+            isReadyToGenerate: viewModel.isReadyToGenerate,
+            readySummary: viewModel.readySummary,
+            onSendMessage: { text in
+                Task {
+                    await viewModel.sendMessage(text)
+                }
+            },
+            onGeneratePlan: {
+                Task {
+                    await viewModel.startPlanGeneration()
+                }
+            },
+            onMoreQuestions: {
+                Task {
+                    await viewModel.requestMoreQuestions()
+                }
+            }
+        )
     }
 }
 
@@ -178,15 +207,13 @@ private struct WorkoutInputView: View {
                 text: $viewModel.preferences,
                 isLoading: viewModel.flowState.isLoading,
                 onSend: {
+                    viewModel.planSelection = selectedPlanType
+                    isInputFocused = false
                     Task {
-                        viewModel.planSelection = selectedPlanType
-                        isInputFocused = false
-                        await viewModel.startWizard(fromPrompt: viewModel.preferences)
+                        await viewModel.startConversation(initialPrompt: viewModel.preferences)
                     }
                 },
                 onCancel: {
-                     // Not implementing cancel for initial fetching as VM doesn't expose it easily,
-                     // but the bar supports the UI.
                 }
             )
             .focused($isInputFocused)
@@ -313,6 +340,7 @@ private struct PromptChip: View {
 
 private struct WorkoutGenerationView: View {
     @ObservedObject var viewModel: WorkoutsViewModel
+    var canCloseApp: Bool = false
     
     var body: some View {
         VStack(spacing: 32) {
@@ -344,6 +372,28 @@ private struct WorkoutGenerationView: View {
             Text("This may take up to a minute...")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            
+            if canCloseApp {
+                GlassCard(tint: .blue.opacity(0.1)) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "bell.badge.fill")
+                            .font(.title2)
+                            .foregroundStyle(.blue)
+                        
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("You can close the app")
+                                .font(.headline)
+                            Text("We'll notify you when your workout plan is ready!")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        
+                        Spacer()
+                    }
+                    .padding()
+                }
+                .padding(.horizontal)
+            }
         }
         .padding()
     }

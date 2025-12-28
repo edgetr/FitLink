@@ -29,14 +29,25 @@ struct HabitTrackerView: View {
                 .padding(.horizontal, GlassTokens.Layout.pageHorizontalPadding)
                 .padding(.top, 8)
                 
-                if viewModel.activeHabitsForSelectedDate.isEmpty {
-                    emptyState
-                } else {
-                    habitList
+                switch viewModel.viewState {
+                case .loading:
+                    loadingState
+                case .error(let message):
+                    errorState(message: message)
+                case .loaded, .saving:
+                    if viewModel.activeHabitsForSelectedDate.isEmpty {
+                        emptyState
+                    } else {
+                        habitList
+                    }
                 }
             }
             
-            addButton
+            if case .loaded = viewModel.viewState {
+                addButton
+            } else if case .saving = viewModel.viewState {
+                addButton
+            }
         }
         .background(Color(UIColor.systemGroupedBackground))
         .navigationTitle("Habit Tracker")
@@ -95,6 +106,44 @@ struct HabitTrackerView: View {
             Text("Tap the + button to add your first habit")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    
+    private var loadingState: some View {
+        VStack(spacing: 16) {
+            ProgressView()
+                .scaleEffect(1.5)
+            
+            Text("Loading habits...")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    
+    private func errorState(message: String) -> some View {
+        VStack(spacing: 16) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 60))
+                .foregroundStyle(.orange)
+            
+            Text("Something went wrong")
+                .font(.title2)
+                .fontWeight(.semibold)
+            
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+            
+            Button("Try Again") {
+                Task {
+                    await viewModel.loadHabitsAsync()
+                }
+            }
+            .buttonStyle(.borderedProminent)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

@@ -5,22 +5,32 @@ import UIKit
 
 @main
 struct FitLinkApp: App {
-    @StateObject private var sessionManager = SessionManager.shared
+    @StateObject private var appEnvironment = AppEnvironment()
     @AppStorage("app_preferred_color_scheme") private var preferredColorScheme: Int = 2
+    @Environment(\.scenePhase) private var scenePhase
+    
+    private var sessionManager: SessionManager { appEnvironment.sessionManager }
     
     init() {
         configureFirebase()
         configureFirestoreCache()
         setupMemoryManagement()
+        HealthSyncScheduler.shared.registerBackgroundTasks()
     }
     
     var body: some Scene {
         WindowGroup {
             MainAppView()
-                .environmentObject(sessionManager)
+                .withAppEnvironment(appEnvironment)
                 .preferredColorScheme(colorSchemeFromPreference)
                 .onOpenURL { url in
                     handleDeepLink(url: url)
+                }
+                .onChange(of: scenePhase) { _, newPhase in
+                    handleScenePhaseChange(newPhase)
+                }
+                .onAppear {
+                    checkPendingGenerations()
                 }
         }
     }
@@ -65,32 +75,83 @@ struct FitLinkApp: App {
     }
     
     private func handleDeepLink(url: URL) {
-        guard url.scheme == "fitlink" else { return }
+        let handled = AppRouter.shared.handleURL(url)
+        if !handled {
+            AppLogger.shared.warning("Unhandled deep link: \(url.absoluteString)", category: .navigation)
+        }
+    }
+    
+    private func handleScenePhaseChange(_ phase: ScenePhase) {
+        switch phase {
+        case .active:
+            checkPendingGenerations()
+            performHealthSyncIfNeeded()
+            Task { @MainActor in
+                NotificationService.shared.clearBadge()
+            }
+            
+        case .inactive:
+            break
+            
+        case .background:
+            HealthSyncScheduler.shared.scheduleBackgroundSync()
+            
+        @unknown default:
+            break
+        }
+    }
+    
+    private func performHealthSyncIfNeeded() {
+        guard let userId = sessionManager.currentUserID else { return }
         
-        let host = url.host
-        let pathComponents = url.pathComponents
+        if HealthSyncScheduler.shared.shouldPerformSync(userId: userId) {
+            Task {
+                await HealthSyncScheduler.shared.performForegroundSync(userId: userId)
+            }
+        }
+    }
+    
+    private func checkPendingGenerations() {
+        guard let userId = sessionManager.currentUserID else { return }
         
-        switch host {
-        case "workout":
-            print("Deep link to workout: \(pathComponents)")
-        case "diet":
-            print("Deep link to diet: \(pathComponents)")
-        case "habit":
-            print("Deep link to habit: \(pathComponents)")
-        case "profile":
-            print("Deep link to profile")
-        default:
-            print("Unknown deep link: \(url)")
+        Task {
+            await checkAndDisplayCompletedGenerations(userId: userId)
+        }
+    }
+    
+    private func checkAndDisplayCompletedGenerations(userId: String) async {
+        let planGenerationService = PlanGenerationService.shared
+        
+        do {
+            let completedGenerations = try await planGenerationService.loadCompletedUnnotified(userId: userId)
+            
+            for generation in completedGenerations {
+                NotificationCenter.default.post(
+                    name: .planGenerationCompleted,
+                    object: nil,
+                    userInfo: [
+                        "generationId": generation.id,
+                        "planType": generation.planType.rawValue,
+                        "resultPlanId": generation.resultPlanId ?? ""
+                    ]
+                )
+                
+                try await planGenerationService.markNotificationSent(generation.id)
+            }
+            
+        } catch {
+            AppLogger.shared.error("Error checking completed generations: \(error.localizedDescription)", category: .general)
         }
     }
 }
 
 private func handleMemoryWarning() {
-    URLCache.shared.removeAllCachedResponses()
-    print("Memory warning: cleared URL cache")
+    CacheManager.shared.clearMemoryCachesOnly()
+    ImageFinderService.shared.clearMemoryCache()
+    AppLogger.shared.info("Memory warning: cleared memory caches (disk cache preserved)", category: .cache)
 }
 
 private func clearCachesOnBackground() {
-    URLCache.shared.removeAllCachedResponses()
-    print("App entered background: cleared caches")
+    CacheManager.shared.clearMemoryCachesOnly()
+    AppLogger.shared.debug("App entered background: cleared memory caches (disk cache preserved)", category: .cache)
 }

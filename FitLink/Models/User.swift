@@ -8,6 +8,8 @@ struct User: Identifiable, Codable {
     var photoURL: String?
     var friendIDs: [String]
     var createdAt: Date
+    var emailLowercased: String?
+    var displayNameLowercased: String?
     
     enum CodingKeys: String, CodingKey {
         case id
@@ -16,6 +18,8 @@ struct User: Identifiable, Codable {
         case photoURL = "photo_url"
         case friendIDs = "friend_ids"
         case createdAt = "created_at"
+        case emailLowercased = "email_lowercased"
+        case displayNameLowercased = "display_name_lowercased"
     }
     
     var initials: String {
@@ -35,7 +39,9 @@ struct User: Identifiable, Codable {
             "email": email,
             "photo_url": photoURL as Any,
             "friend_ids": friendIDs,
-            "created_at": createdAt
+            "created_at": createdAt,
+            "email_lowercased": email.lowercased(),
+            "display_name_lowercased": displayName.lowercased()
         ]
     }
     
@@ -48,6 +54,8 @@ struct User: Identifiable, Codable {
         let photoURL = data["photo_url"] as? String
         let friendIDs = data["friend_ids"] as? [String] ?? []
         let createdAt = (data["created_at"] as? Timestamp)?.dateValue() ?? Date()
+        let emailLowercased = data["email_lowercased"] as? String
+        let displayNameLowercased = data["display_name_lowercased"] as? String
         
         return User(
             id: id,
@@ -55,7 +63,9 @@ struct User: Identifiable, Codable {
             email: email,
             photoURL: photoURL,
             friendIDs: friendIDs,
-            createdAt: createdAt
+            createdAt: createdAt,
+            emailLowercased: emailLowercased,
+            displayNameLowercased: displayNameLowercased
         )
     }
     

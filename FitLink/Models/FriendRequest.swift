@@ -47,7 +47,7 @@ struct FriendRequest: Identifiable, Codable {
     }
     
     init(
-        id: String = UUID().uuidString,
+        id: String? = nil,
         from: String,
         to: String,
         status: FriendRequestStatus = .pending,
@@ -58,7 +58,7 @@ struct FriendRequest: Identifiable, Codable {
         toUserDisplayName: String? = nil,
         toUserEmail: String? = nil
     ) {
-        self.id = id
+        self.id = id ?? FriendRequest.deterministicId(from: from, to: to)
         self.from = from
         self.to = to
         self.status = status
@@ -68,6 +68,10 @@ struct FriendRequest: Identifiable, Codable {
         self.fromUserEmail = fromUserEmail
         self.toUserDisplayName = toUserDisplayName
         self.toUserEmail = toUserEmail
+    }
+    
+    static func deterministicId(from senderId: String, to recipientId: String) -> String {
+        return "fr_\(senderId)_\(recipientId)"
     }
     
     /// Convert to dictionary for Firestore

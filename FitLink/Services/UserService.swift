@@ -41,8 +41,10 @@ final class UserService {
     ///   - displayName: The new display name
     func updateDisplayName(userId: String, displayName: String) async throws {
         // Use setData with merge to create document if it doesn't exist
+        // Also update normalized field for searchability
         try await db.collection("users").document(userId).setData([
-            "display_name": displayName
+            "display_name": displayName,
+            "display_name_lowercased": displayName.lowercased()
         ], merge: true)
         
         // Also update Firebase Auth profile
@@ -66,7 +68,11 @@ final class UserService {
         // Also update Firebase Auth profile
         if let currentUser = Auth.auth().currentUser {
             let changeRequest = currentUser.createProfileChangeRequest()
-            changeRequest.photoURL = photoURL != nil ? URL(string: photoURL!) : nil
+            if let urlString = photoURL {
+                changeRequest.photoURL = URL(string: urlString)
+            } else {
+                changeRequest.photoURL = nil
+            }
             try await changeRequest.commitChanges()
         }
     }
@@ -79,8 +85,7 @@ final class UserService {
         do {
             try await profileImageRef.delete()
         } catch {
-            // Image may not exist, which is fine
-            print("No profile image to delete or error: \(error.localizedDescription)")
+            AppLogger.shared.debug("No profile image to delete or error: \(error.localizedDescription)", category: .user)
         }
         
         // Delete user document
@@ -130,8 +135,7 @@ final class UserService {
         do {
             try await storageRef.delete()
         } catch {
-            // Image may not exist, continue anyway
-            print("No profile image to delete: \(error.localizedDescription)")
+            AppLogger.shared.debug("No profile image to delete: \(error.localizedDescription)", category: .user)
         }
         
         // Update user document to remove photo URL

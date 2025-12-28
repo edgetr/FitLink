@@ -148,12 +148,6 @@ extension View {
 // MARK: - Accessibility Extensions
 
 extension View {
-    /// Apply common accessibility properties
-    /// - Parameters:
-    ///   - label: The accessibility label
-    ///   - hint: Optional hint
-    ///   - traits: Accessibility traits
-    /// - Returns: The view with accessibility configured
     func accessibilityConfigured(
         label: String,
         hint: String? = nil,
@@ -161,10 +155,25 @@ extension View {
     ) -> some View {
         self
             .accessibilityLabel(label)
-            .if(hint != nil) { view in
-                view.accessibilityHint(hint!)
+            .ifLet(hint) { view, hintValue in
+                view.accessibilityHint(hintValue)
             }
             .accessibilityAddTraits(traits)
+    }
+    
+    func accessibilityConfiguredButton(
+        label: String,
+        hint: String? = nil
+    ) -> some View {
+        accessibilityConfigured(label: label, hint: hint, traits: .isButton)
+    }
+    
+    func accessibilityConfiguredHeader(_ label: String) -> some View {
+        accessibilityConfigured(label: label, traits: .isHeader)
+    }
+    
+    func accessibilityConfiguredImage(_ label: String) -> some View {
+        accessibilityConfigured(label: label, traits: .isImage)
     }
 }
 

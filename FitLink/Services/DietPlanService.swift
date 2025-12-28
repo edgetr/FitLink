@@ -102,7 +102,18 @@ class DietPlanService {
         ])
     }
     
-    func markMealDone(planId: String, dailyPlanIndex: Int, mealId: UUID, isDone: Bool) async throws {
+    func markMealDone(planId: String, dayNumber: Int, mealId: UUID, isDone: Bool) async throws {
+        let docRef = db.collection(collectionName).document(planId)
+        let mealPath = "daily_plans.day_\(dayNumber).meals.\(mealId.uuidString).is_done"
+        
+        try await docRef.updateData([
+            mealPath: isDone,
+            "last_updated": Timestamp(date: Date())
+        ])
+    }
+    
+    @available(*, deprecated, message: "Use markMealDone(planId:dayNumber:mealId:isDone:) for atomic updates")
+    func markMealDoneLegacy(planId: String, dailyPlanIndex: Int, mealId: UUID, isDone: Bool) async throws {
         guard let plan = try await loadPlan(byId: planId) else {
             throw DietPlanServiceError.planNotFound
         }
@@ -112,7 +123,7 @@ class DietPlanService {
         }
         
         var dailyPlans = plan.dailyPlans
-        var dailyPlan = dailyPlans[dailyPlanIndex]
+        let dailyPlan = dailyPlans[dailyPlanIndex]
         
         guard let mealIndex = dailyPlan.meals.firstIndex(where: { $0.id == mealId }) else {
             throw DietPlanServiceError.mealNotFound
@@ -204,6 +215,40 @@ class DietPlanService {
         try await saveDietPlan(plan)
         return plan
     }
+    
+    func getMealStatus(planId: String, dayNumber: Int, mealId: UUID) async throws -> Bool? {
+        let docRef = db.collection(collectionName).document(planId)
+        let doc = try await docRef.getDocument()
+        
+        guard let data = doc.data(),
+              let dailyPlans = data["daily_plans"] as? [String: [String: Any]],
+              let dayData = dailyPlans["day_\(dayNumber)"],
+              let meals = dayData["meals"] as? [String: [String: Any]],
+              let mealData = meals[mealId.uuidString] else {
+            return nil
+        }
+        
+        return mealData["is_done"] as? Bool
+    }
+    
+    func migrateLegacyPlanToNativeFormat(planId: String) async throws {
+        guard let plan = try await loadPlan(byId: planId) else {
+            throw DietPlanServiceError.planNotFound
+        }
+        try await saveDietPlan(plan)
+    }
+    
+    func batchMigrateLegacyPlans(userId: String) async throws -> Int {
+        let plans = try await loadAllPlansForUser(userId: userId)
+        var migratedCount = 0
+        
+        for plan in plans {
+            try await saveDietPlan(plan)
+            migratedCount += 1
+        }
+        
+        return migratedCount
+    }
 }
 
 enum DietPlanServiceError: LocalizedError {
@@ -228,3 +273,5 @@ enum DietPlanServiceError: LocalizedError {
         }
     }
 }
+
+extension DietPlanService: DietPlanServiceProtocol {}

@@ -1,18 +1,22 @@
 import SwiftUI
 import UIKit
-import HealthKit
-import CoreLocation
-import UserNotifications
 
 struct OnboardingView: View {
     @Binding var isPresented: Bool
+    @StateObject private var permissionCoordinator = PermissionCoordinator.shared
     @State private var currentStep = 0
-    @State private var healthKitAuthorized = false
-    @State private var locationAuthorized = false
-    @State private var notificationsAuthorized = false
     
-    private let healthStore = HKHealthStore()
-    private let locationManager = CLLocationManager()
+    private var healthAuthorized: Bool {
+        permissionCoordinator.isHealthAuthorized
+    }
+    
+    private var locationAuthorized: Bool {
+        permissionCoordinator.isLocationAuthorized
+    }
+    
+    private var notificationsAuthorized: Bool {
+        permissionCoordinator.isNotificationAuthorized
+    }
     
     private var steps: [OnboardingStep] {
         [
@@ -49,10 +53,11 @@ struct OnboardingView: View {
                 title: "Health Tracking",
                 subtitle: "Connect with Apple Health",
                 description: "Sync your steps, calories, and activity data for a complete picture of your health.",
-                buttonText: healthKitAuthorized ? "Authorized ✓" : "Allow Health Access",
+                buttonText: healthAuthorized ? "Authorized ✓" : "Allow Health Access",
                 action: { requestHealthKitPermission() },
                 isPermissionStep: true,
-                isAuthorized: healthKitAuthorized
+                isAuthorized: healthAuthorized,
+                isDenied: permissionCoordinator.healthStatus == .denied
             ),
             OnboardingStep(
                 icon: "location.fill",
@@ -63,7 +68,8 @@ struct OnboardingView: View {
                 buttonText: locationAuthorized ? "Authorized ✓" : "Allow Location",
                 action: { requestLocationPermission() },
                 isPermissionStep: true,
-                isAuthorized: locationAuthorized
+                isAuthorized: locationAuthorized,
+                isDenied: permissionCoordinator.locationStatus == .denied || permissionCoordinator.locationStatus == .restricted
             ),
             OnboardingStep(
                 icon: "bell.badge.fill",
@@ -74,7 +80,8 @@ struct OnboardingView: View {
                 buttonText: notificationsAuthorized ? "Authorized ✓" : "Allow Notifications",
                 action: { requestNotificationPermission() },
                 isPermissionStep: true,
-                isAuthorized: notificationsAuthorized
+                isAuthorized: notificationsAuthorized,
+                isDenied: permissionCoordinator.notificationStatus == .denied
             ),
             OnboardingStep(
                 icon: "checkmark.circle.fill",
@@ -107,6 +114,9 @@ struct OnboardingView: View {
             }
         }
         .interactiveDismissDisabled()
+        .task {
+            await permissionCoordinator.refreshAllStatuses()
+        }
     }
     
     private var skipButton: some View {
@@ -186,7 +196,15 @@ struct OnboardingView: View {
                 .padding(.horizontal, 40)
                 .disabled(step.isPermissionStep && step.isAuthorized)
                 
-                if step.isPermissionStep && !step.isAuthorized {
+                if step.isPermissionStep && step.isDenied {
+                    Button("Open Settings") {
+                        permissionCoordinator.openAppSettings()
+                    }
+                    .font(.subheadline)
+                    .foregroundStyle(.blue)
+                }
+                
+                if step.isPermissionStep && !step.isAuthorized && !step.isDenied {
                     Button("Skip for now") {
                         nextStep()
                     }
@@ -227,54 +245,31 @@ struct OnboardingView: View {
     }
     
     private func requestHealthKitPermission() {
-        guard HKHealthStore.isHealthDataAvailable() else {
-            nextStep()
-            return
-        }
-        
-        let typesToRead: Set<HKObjectType> = [
-            HKQuantityType.quantityType(forIdentifier: .stepCount)!,
-            HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned)!,
-            HKQuantityType.quantityType(forIdentifier: .distanceWalkingRunning)!,
-            HKQuantityType.quantityType(forIdentifier: .heartRate)!,
-            HKActivitySummaryType.activitySummaryType()
-        ]
-        
-        healthStore.requestAuthorization(toShare: nil, read: typesToRead) { success, _ in
-            DispatchQueue.main.async {
-                self.healthKitAuthorized = success
-                if success {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        self.nextStep()
-                    }
-                }
+        Task {
+            let success = await permissionCoordinator.requestHealth()
+            if success {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                nextStep()
             }
         }
     }
     
     private func requestLocationPermission() {
-        locationManager.requestWhenInUseAuthorization()
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            let status = locationManager.authorizationStatus
-            self.locationAuthorized = (status == .authorizedWhenInUse || status == .authorizedAlways)
-            if self.locationAuthorized {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    self.nextStep()
-                }
+        Task {
+            let success = await permissionCoordinator.requestLocation()
+            if success {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                nextStep()
             }
         }
     }
     
     private func requestNotificationPermission() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, _ in
-            DispatchQueue.main.async {
-                self.notificationsAuthorized = granted
-                if granted {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        self.nextStep()
-                    }
-                }
+        Task {
+            let success = await permissionCoordinator.requestNotifications()
+            if success {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                nextStep()
             }
         }
     }
@@ -295,6 +290,7 @@ struct OnboardingStep {
     let action: () -> Void
     var isPermissionStep: Bool = false
     var isAuthorized: Bool = false
+    var isDenied: Bool = false
 }
 
 #Preview {

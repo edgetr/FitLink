@@ -11,7 +11,7 @@ import SwiftUI
 @main
 struct FitLinkLiveActivityBundle: WidgetBundle {
     var body: some Widget {
-        FitLinkLiveActivity()
+        FocusTimerWidget()
         FitLinkLiveActivityControl()
         FitLinkLiveActivityLiveActivity()
     }

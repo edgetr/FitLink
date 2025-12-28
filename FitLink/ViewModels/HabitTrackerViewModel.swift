@@ -10,26 +10,18 @@ import UIKit
 import ActivityKit
 #endif
 
-struct Habit: Identifiable, Codable, Hashable {
-    let id: UUID
-    var name: String
-    var createdAt: Date
-    var endDate: Date?
-    var completionDates: [Date]
-    
-    init(id: UUID = UUID(), name: String, createdAt: Date = Date(), endDate: Date? = nil, completionDates: [Date] = []) {
-        self.id = id
-        self.name = name
-        self.createdAt = createdAt
-        self.endDate = endDate
-        self.completionDates = completionDates
-    }
-    
-    static func normalizeDate(_ date: Date) -> Date {
-        Calendar.current.startOfDay(for: date)
-    }
+// MARK: - View State
+
+enum HabitTrackerViewState: Equatable {
+    case loading
+    case loaded
+    case error(String)
+    case saving
 }
 
+// MARK: - HabitTrackerViewModel
+
+@MainActor
 class HabitTrackerViewModel: ObservableObject {
     
     @Published var habits: [Habit] = []
@@ -38,21 +30,23 @@ class HabitTrackerViewModel: ObservableObject {
     @Published var focusTimeRemainingSeconds: Int = 25 * 60
     @Published var isFocusTimerRunning = false
     @Published var isFocusOnBreak = false
+    @Published var viewState: HabitTrackerViewState = .loading
     
     let instanceId: UUID = UUID()
     @Published var isOnline: Bool = true
     @Published var lastSyncDate: Date?
-    @Published var showPermissionAlert: Bool = false
     
     private var timerCancellable: AnyCancellable?
     private var lifecycleObservers: [Any] = []
-    private let healthStore = HKHealthStore()
+    private let habitStore: HabitStore
     
     var userId: String? {
         didSet {
             if userId != nil {
                 log("User ID set to: \(userId ?? "nil"), reloading habits")
-                loadHabits()
+                Task {
+                    await loadHabitsAsync()
+                }
             }
         }
     }
@@ -80,46 +74,33 @@ class HabitTrackerViewModel: ObservableObject {
         }
     }
     
-    init() {
+    init(habitStore: HabitStore = .shared) {
+        self.habitStore = habitStore
         log("HabitTrackerViewModel initialized with instanceId: \(instanceId)")
         setupLifecycleObservers()
-        requestPermissions()
+        Task {
+            await loadHabitsAsync()
+        }
     }
     
     deinit {
-        log("HabitTrackerViewModel deinit for instanceId: \(instanceId)")
-        removeLifecycleObservers()
-        stopTimer()
+        #if DEBUG
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        print("[\(timestamp)] [HabitTracker-\(instanceId.uuidString.prefix(8))] HabitTrackerViewModel deinit for instanceId: \(instanceId)")
+        #endif
+        
+        #if canImport(UIKit)
+        for observer in lifecycleObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        #endif
+        lifecycleObservers.removeAll()
+        
+        timerCancellable?.cancel()
+        timerCancellable = nil
     }
     
-    func requestPermissions() {
-        guard HKHealthStore.isHealthDataAvailable() else {
-            log("HealthKit not available on this device")
-            loadHabits()
-            return
-        }
-        
-        let typesToRead: Set<HKObjectType> = [
-            HKObjectType.quantityType(forIdentifier: .stepCount)!,
-            HKObjectType.quantityType(forIdentifier: .activeEnergyBurned)!
-        ]
-        
-        healthStore.requestAuthorization(toShare: nil, read: typesToRead) { [weak self] success, error in
-            DispatchQueue.main.async {
-                guard let self = self else { return }
-                
-                if success {
-                    self.log("HealthKit authorization granted")
-                    self.showPermissionAlert = false
-                } else {
-                    self.log("HealthKit authorization denied: \(error?.localizedDescription ?? "Unknown error")")
-                    self.showPermissionAlert = true
-                }
-                
-                self.loadHabits()
-            }
-        }
-    }
+    // MARK: - Lifecycle
     
     private func setupLifecycleObservers() {
         #if canImport(UIKit)
@@ -158,7 +139,9 @@ class HabitTrackerViewModel: ObservableObject {
     
     private func handleAppDidEnterBackground() {
         log("App entered background")
-        saveHabits()
+        Task {
+            await saveHabitsAsync()
+        }
         if isFocusTimerRunning {
             stopTimer()
             log("Focus timer paused on background")
@@ -181,10 +164,43 @@ class HabitTrackerViewModel: ObservableObject {
         }
     }
     
+    // MARK: - Persistence
+    
+    func loadHabitsAsync() async {
+        viewState = .loading
+        
+        do {
+            let loadedHabits = try await habitStore.loadHabits(userId: userId)
+            habits = loadedHabits
+            viewState = .loaded
+            log("Loaded \(habits.count) habits")
+            
+            await deleteExpiredHabitsAsync()
+        } catch {
+            log("Failed to load habits: \(error.localizedDescription)")
+            viewState = .error(error.localizedDescription)
+            habits = []
+        }
+    }
+    
+    func saveHabitsAsync() async {
+        do {
+            try await habitStore.saveHabits(habits, userId: userId)
+            lastSyncDate = Date()
+            log("Saved \(habits.count) habits")
+        } catch {
+            log("Failed to save habits: \(error.localizedDescription)")
+        }
+    }
+    
+    // MARK: - Habit CRUD
+    
     func addHabit(name: String, endDate: Date? = nil) {
         let habit = Habit(name: name, endDate: endDate)
         habits.append(habit)
-        saveHabits()
+        Task {
+            await saveHabitsAsync()
+        }
         log("Added habit: \(name)")
     }
     
@@ -192,7 +208,9 @@ class HabitTrackerViewModel: ObservableObject {
         if let index = habits.firstIndex(where: { $0.id == id }) {
             let oldName = habits[index].name
             habits[index].name = newName
-            saveHabits()
+            Task {
+                await saveHabitsAsync()
+            }
             log("Updated habit name from '\(oldName)' to '\(newName)'")
         }
     }
@@ -201,12 +219,14 @@ class HabitTrackerViewModel: ObservableObject {
         if let index = habits.firstIndex(where: { $0.id == id }) {
             let habitName = habits[index].name
             habits.removeAll { $0.id == id }
-            saveHabits()
+            Task {
+                await saveHabitsAsync()
+            }
             log("Deleted habit: \(habitName)")
         }
     }
     
-    func deleteExpiredHabits() {
+    private func deleteExpiredHabitsAsync() async {
         let today = Habit.normalizeDate(Date())
         let expiredHabits = habits.filter { habit in
             if let endDate = habit.endDate {
@@ -227,7 +247,7 @@ class HabitTrackerViewModel: ObservableObject {
         }
         
         if !expiredHabits.isEmpty {
-            saveHabits()
+            await saveHabitsAsync()
             log("Removed \(expiredHabits.count) expired habit(s)")
         }
     }
@@ -247,13 +267,17 @@ class HabitTrackerViewModel: ObservableObject {
             log("Marked habit '\(habit.name)' as complete for \(normalizedDate)")
         }
         
-        saveHabits()
+        Task {
+            await saveHabitsAsync()
+        }
     }
     
     func isCompleted(habit: Habit, on date: Date) -> Bool {
         let normalizedDate = Habit.normalizeDate(date)
         return habit.completionDates.contains { Habit.normalizeDate($0) == normalizedDate }
     }
+    
+    // MARK: - Focus Timer
     
     func startFocusSession(for habit: Habit) {
         focusedHabitId = habit.id
@@ -323,64 +347,7 @@ class HabitTrackerViewModel: ObservableObject {
         timerCancellable = nil
     }
     
-    private func habitsFileURL() -> URL {
-        let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        
-        let filename: String
-        if let userId = userId, !userId.isEmpty {
-            filename = "habits_\(userId).json"
-        } else {
-            filename = "habits.json"
-        }
-        
-        return documentsDirectory.appendingPathComponent(filename)
-    }
-    
-    private func saveHabits() {
-        do {
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            let data = try encoder.encode(habits)
-            try data.write(to: habitsFileURL())
-            lastSyncDate = Date()
-            log("Saved \(habits.count) habits to \(habitsFileURL().lastPathComponent)")
-        } catch {
-            log("Failed to save habits: \(error.localizedDescription)")
-        }
-    }
-    
-    private func loadHabits() {
-        let url = habitsFileURL()
-        log("Loading habits from: \(url.lastPathComponent)")
-        
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            log("No habits file found, loading sample data")
-            habits = sampleHabits
-            saveHabits()
-            return
-        }
-        
-        do {
-            let data = try Data(contentsOf: url)
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            habits = try decoder.decode([Habit].self, from: data)
-            log("Loaded \(habits.count) habits")
-            
-            deleteExpiredHabits()
-        } catch {
-            log("Failed to load habits: \(error.localizedDescription), using sample data")
-            habits = sampleHabits
-        }
-    }
-    
-    private var sampleHabits: [Habit] {
-        [
-            Habit(name: "Morning Exercise"),
-            Habit(name: "Read 30 minutes"),
-            Habit(name: "Drink 8 glasses of water")
-        ]
-    }
+    // MARK: - Live Activity
     
     private func startLiveActivity(for habit: Habit) {
         #if canImport(ActivityKit)
@@ -412,6 +379,8 @@ class HabitTrackerViewModel: ObservableObject {
         }
         #endif
     }
+    
+    // MARK: - Logging
     
     private func log(_ message: String) {
         #if DEBUG

@@ -25,6 +25,7 @@ final class NotificationService: NSObject, ObservableObject {
         case friendRequest = "FRIEND_REQUEST"
         case dailySummary = "DAILY_SUMMARY"
         case streak = "STREAK_ALERT"
+        case planComplete = "PLAN_COMPLETE"
     }
     
     // MARK: - Notification Actions
@@ -174,12 +175,27 @@ final class NotificationService: NSObject, ObservableObject {
             options: []
         )
         
+        // Plan Complete Actions
+        let viewPlanAction = UNNotificationAction(
+            identifier: NotificationAction.view.rawValue,
+            title: "View Plan",
+            options: [.foreground]
+        )
+        
+        let planCompleteCategory = UNNotificationCategory(
+            identifier: NotificationCategory.planComplete.rawValue,
+            actions: [viewPlanAction],
+            intentIdentifiers: [],
+            options: []
+        )
+        
         notificationCenter.setNotificationCategories([
             habitCategory,
             mealCategory,
             workoutCategory,
             focusCategory,
-            friendCategory
+            friendCategory,
+            planCompleteCategory
         ])
     }
     
@@ -407,6 +423,56 @@ final class NotificationService: NSObject, ObservableObject {
         try await notificationCenter.add(request)
     }
     
+    // MARK: - Plan Completion Notifications
+    
+    /// Schedule a notification when AI plan generation completes
+    /// - Parameters:
+    ///   - planType: The type of plan that was generated
+    ///   - planName: Display name for the plan
+    func schedulePlanCompleteNotification(
+        planType: GenerationPlanType,
+        planName: String
+    ) async throws {
+        if !isAuthorized {
+            let authorized = await requestAuthorizationIfNeeded()
+            guard authorized else { throw NotificationError.notAuthorized }
+        }
+        
+        let content = UNMutableNotificationContent()
+        content.title = planType.notificationTitle
+        content.body = "Tap to view your personalized \(planName.lowercased())."
+        content.sound = .default
+        content.categoryIdentifier = NotificationCategory.planComplete.rawValue
+        content.userInfo = [
+            "type": "plan_complete",
+            "planType": planType.rawValue
+        ]
+        content.badge = 1
+        
+        // Trigger immediately (1 second delay for reliability)
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+        
+        let request = UNNotificationRequest(
+            identifier: "plan-complete-\(planType.rawValue)-\(UUID().uuidString)",
+            content: content,
+            trigger: trigger
+        )
+        
+        try await notificationCenter.add(request)
+        
+        log("Scheduled plan complete notification for \(planType.rawValue)")
+    }
+    
+    /// Cancel pending plan completion notifications
+    func cancelPlanCompleteNotifications() {
+        notificationCenter.getPendingNotificationRequests { [weak self] requests in
+            let identifiers = requests
+                .filter { $0.identifier.hasPrefix("plan-complete-") }
+                .map { $0.identifier }
+            self?.notificationCenter.removePendingNotificationRequests(withIdentifiers: identifiers)
+        }
+    }
+    
     // MARK: - Cancel Notifications
     
     /// Cancel a specific notification by identifier
@@ -460,7 +526,7 @@ final class NotificationService: NSObject, ObservableObject {
     func setBadgeCount(_ count: Int) {
         UNUserNotificationCenter.current().setBadgeCount(count) { error in
             if let error = error {
-                print("NotificationService: Failed to set badge: \(error.localizedDescription)")
+                AppLogger.shared.error("Failed to set badge: \(error.localizedDescription)", category: .notification)
             }
         }
     }
@@ -481,6 +547,15 @@ final class NotificationService: NSObject, ObservableObject {
     /// Get all delivered notifications
     func getDeliveredNotifications() async -> [UNNotification] {
         await notificationCenter.deliveredNotifications()
+    }
+    
+    // MARK: - Private Helpers
+    
+    private func log(_ message: String) {
+        #if DEBUG
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        print("[\(timestamp)] [NotificationService] \(message)")
+        #endif
     }
 }
 
@@ -507,7 +582,19 @@ extension NotificationService: UNUserNotificationCenterDelegate {
         let userInfo = response.notification.request.content.userInfo
         let actionIdentifier = response.actionIdentifier
         
-        // Post notification for app to handle
+        // Check if this is a plan complete notification
+        if let type = userInfo["type"] as? String, type == "plan_complete" {
+            if let planTypeRaw = userInfo["planType"] as? String {
+                // Post notification to navigate to the appropriate view
+                NotificationCenter.default.post(
+                    name: .navigateToPlan,
+                    object: nil,
+                    userInfo: ["planType": planTypeRaw]
+                )
+            }
+        }
+        
+        // Post general notification for app to handle
         NotificationCenter.default.post(
             name: .didReceiveNotificationAction,
             object: nil,
@@ -541,4 +628,6 @@ enum NotificationError: LocalizedError {
 
 extension Notification.Name {
     static let didReceiveNotificationAction = Notification.Name("didReceiveNotificationAction")
+    static let planGenerationCompleted = Notification.Name("planGenerationCompleted")
+    static let navigateToPlan = Notification.Name("navigateToPlan")
 }

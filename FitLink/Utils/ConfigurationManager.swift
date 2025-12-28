@@ -41,26 +41,24 @@ final class ConfigurationManager {
     
     // MARK: - Private Methods
     
-    /// Loads the configuration from the local plist file.
     private func loadConfiguration() {
-        // Try to find APIConfig.local.plist in the main bundle
         guard let plistPath = Bundle.main.path(forResource: "APIConfig.local", ofType: "plist") else {
-            print("⚠️ ConfigurationManager: APIConfig.local.plist not found. API features may not work.")
+            AppLogger.shared.warning("APIConfig.local.plist not found. API features may not work.", category: .config)
             return
         }
         
         guard let plistData = FileManager.default.contents(atPath: plistPath) else {
-            print("⚠️ ConfigurationManager: Could not read APIConfig.local.plist")
+            AppLogger.shared.warning("Could not read APIConfig.local.plist", category: .config)
             return
         }
         
         do {
             if let plistDict = try PropertyListSerialization.propertyList(from: plistData, options: [], format: nil) as? [String: Any] {
                 config = plistDict
-                print("✅ ConfigurationManager: Configuration loaded successfully")
+                AppLogger.shared.info("Configuration loaded successfully", category: .config)
             }
         } catch {
-            print("❌ ConfigurationManager: Error parsing APIConfig.local.plist: \(error)")
+            AppLogger.shared.error("Error parsing APIConfig.local.plist: \(error.localizedDescription)", category: .config)
         }
     }
     

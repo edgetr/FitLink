@@ -167,7 +167,7 @@ final class LocationService: NSObject, ObservableObject {
             guard let self = self else { return }
             
             if let error = error {
-                print("LocationService: Geocoding error: \(error.localizedDescription)")
+                AppLogger.shared.debug("Geocoding error: \(error.localizedDescription)", category: .location)
                 return
             }
             
@@ -209,7 +209,7 @@ extension LocationService: CLLocationManagerDelegate {
     }
     
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        print("LocationService: Location update failed: \(error.localizedDescription)")
+        AppLogger.shared.warning("Location update failed: \(error.localizedDescription)", category: .location)
         
         let clError = error as? CLError
         switch clError?.code {
