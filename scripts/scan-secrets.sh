@@ -72,6 +72,7 @@ EXCLUDES=(
     "DerivedData/"
     "*.xcresult"
     "scripts/scan-secrets.sh"  # Don't scan this file
+    "Package.resolved"         # SPM dependency hashes (not secrets)
 )
 
 # Function to check if file should be excluded
