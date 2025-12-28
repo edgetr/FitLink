@@ -2,15 +2,17 @@ import SwiftUI
 import UIKit
 
 struct FriendsView: View {
+    @Environment(\.appEnvironment) private var appEnvironment
+    
     let userId: String
     @StateObject private var viewModel: FriendsViewModel
     
     @State private var showRemoveFriendAlert = false
     @State private var friendToRemove: User?
     
-    init(userId: String) {
+    init(userId: String, friendService: FriendService = .shared) {
         self.userId = userId
-        self._viewModel = StateObject(wrappedValue: FriendsViewModel(userId: userId))
+        self._viewModel = StateObject(wrappedValue: FriendsViewModel(userId: userId, friendService: friendService))
     }
     
     var body: some View {

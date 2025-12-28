@@ -2,26 +2,20 @@ import Foundation
 
 struct WorkoutPromptBuilder {
     
-    // MARK: - System Prompt
-    
     static let systemPrompt = """
-    You are an expert personal trainer and fitness coach with extensive experience creating workout programs.
-    Your role is to create personalized, safe, and effective workout plans based on user preferences and goals.
+    You are an expert personal trainer creating highly personalized workout plans for FitLink.
     
-    IMPORTANT GUIDELINES:
-    1. Always prioritize safety - include proper warm-up and cool-down recommendations
-    2. Consider the user's fitness level when prescribing exercises
-    3. Ensure progressive overload principles are applied
-    4. Include rest days for recovery
-    5. Provide clear exercise instructions and rep ranges
-    6. Consider available equipment when suggesting exercises
-    7. Balance muscle groups to prevent imbalances
-    8. Include alternatives for exercises when appropriate
+    PERSONALIZATION IS CRITICAL:
+    - Read the USER CONTEXT carefully - it contains their health data, patterns, and history
+    - Respect ALL injuries and limitations
+    - Match intensity to their current activity level
+    - Schedule workouts at times they're typically active
+    - Include exercises they've enjoyed in the past
+    - Avoid exercises they tend to skip
     
-    ALWAYS respond with valid JSON only. No markdown, no explanatory text outside the JSON structure.
+    RESPOND WITH VALID JSON ONLY. Include warmup, exercises, cooldown for each day.
+    Prioritize safety. Consider fitness level. Include appropriate rest days.
     """
-    
-    // MARK: - Home Plan Prompt
     
     static func buildHomePlanPrompt(preferences: String, additionalContext: [String: AnswerValue] = [:]) -> String {
         var enhancedPreferences = preferences
@@ -31,31 +25,40 @@ struct WorkoutPromptBuilder {
         }
         
         return """
-        Create a 7-day home workout plan based on these preferences:
+        Create a personalized 7-day home workout plan based on user preferences and context.
         
-        USER PREFERENCES:
+        USER REQUEST:
         \(enhancedPreferences)
         
         CONSTRAINTS FOR HOME WORKOUTS:
-        - Use minimal or no equipment (bodyweight exercises preferred)
-        - If equipment is mentioned, only use: resistance bands, dumbbells, pull-up bar, yoga mat
-        - Each workout should be completable in 30-60 minutes
-        - Include exercises that can be done in a small space
+        - Use only equipment listed in user context (or bodyweight if none specified)
+        - Each workout should fit within user's preferred duration
+        - Schedule intense workouts on user's most active days
+        - Consider sleep patterns - avoid high-intensity if user is sleep-deprived
+        
+        PERSONALIZATION REQUIREMENTS:
+        - If user has injuries/limitations, provide safe alternatives
+        - Match difficulty to user's fitness level and recent activity trends
+        - Include exercises user has historically completed (if known)
+        - Avoid exercises user tends to skip (if known)
         
         RESPOND WITH THIS EXACT JSON STRUCTURE:
         {
-            "title": "Plan title here",
+            "title": "Personalized plan title",
             "total_days": 7,
             "difficulty": "beginner" | "intermediate" | "advanced",
-            "equipment": ["list of equipment needed or empty array"],
-            "goals": ["list of fitness goals addressed"],
+            "equipment": ["list based on user's available equipment"],
+            "goals": ["aligned with user's stated goals"],
+            "personalization_notes": "Brief note on how this plan was customized for this user",
             "days": [
                 {
                     "day": 1,
-                    "date": "2025-12-24",
+                    "date": "2025-12-27",
                     "is_rest_day": false,
                     "focus": ["Muscle groups targeted"],
-                    "notes": "Optional notes for this day",
+                    "notes": "Why this workout on this day for this user",
+                    "estimated_duration_minutes": 45,
+                    "intensity_level": "moderate",
                     "exercises": [
                         {
                             "name": "Exercise name",
@@ -85,17 +88,15 @@ struct WorkoutPromptBuilder {
             ]
         }
         
-        IMPORTANT:
+        CRITICAL:
+        - Place rest days strategically based on user's schedule
+        - If user's activity trend is "declining", start easier
+        - If user has low sleep, reduce workout intensity
+        - Match workout times to user's peak activity hours
         - Include 2-3 rest days spread throughout the week
-        - For rest days, set is_rest_day to true and exercises to empty array
-        - Use duration_seconds for timed exercises (like planks), sets/reps for counted exercises
-        - All dates should start from today and be consecutive
         - Provide 5-8 exercises per workout day
-        - Include 3-5 warmup and 3-5 cooldown exercises
         """
     }
-    
-    // MARK: - Gym Plan Prompt
     
     static func buildGymPlanPrompt(preferences: String, additionalContext: [String: AnswerValue] = [:]) -> String {
         var enhancedPreferences = preferences
@@ -105,31 +106,41 @@ struct WorkoutPromptBuilder {
         }
         
         return """
-        Create a 7-day gym workout plan based on these preferences:
+        Create a personalized 7-day gym workout plan based on user preferences and context.
         
-        USER PREFERENCES:
+        USER REQUEST:
         \(enhancedPreferences)
         
         GYM WORKOUT CONTEXT:
         - User has access to full gym equipment
-        - Can use: barbells, dumbbells, machines, cables, benches, racks
         - Focus on compound movements with isolation accessories
         - Include progressive overload recommendations
         
+        PERSONALIZATION REQUIREMENTS:
+        - Match intensity to user's current fitness level and activity trend
+        - Schedule workouts on user's most active days
+        - Respect all injuries and limitations with safe alternatives
+        - If user's resting heart rate is elevated, reduce cardio intensity
+        - Include exercises user has historically enjoyed
+        - Avoid exercises user tends to skip
+        
         RESPOND WITH THIS EXACT JSON STRUCTURE:
         {
-            "title": "Plan title here",
+            "title": "Personalized gym plan title",
             "total_days": 7,
             "difficulty": "beginner" | "intermediate" | "advanced",
-            "equipment": ["list of gym equipment used"],
-            "goals": ["list of fitness goals addressed"],
+            "equipment": ["gym equipment used"],
+            "goals": ["aligned with user's stated goals"],
+            "personalization_notes": "How this plan was customized",
             "days": [
                 {
                     "day": 1,
-                    "date": "2025-12-24",
+                    "date": "2025-12-27",
                     "is_rest_day": false,
                     "focus": ["Muscle groups targeted"],
-                    "notes": "Optional training notes",
+                    "notes": "Why this workout suits this user today",
+                    "estimated_duration_minutes": 60,
+                    "intensity_level": "high",
                     "exercises": [
                         {
                             "name": "Exercise name",
@@ -137,8 +148,9 @@ struct WorkoutPromptBuilder {
                             "reps": "6-8",
                             "duration_seconds": null,
                             "rest_seconds": 90,
-                            "notes": "Form cues or progression tips",
-                            "equipment_needed": "Barbell, Squat Rack"
+                            "notes": "Form cues specific to user's level",
+                            "equipment_needed": "Barbell, Squat Rack",
+                            "alternatives": ["Alternative if equipment busy"]
                         }
                     ],
                     "warmup": [
@@ -159,59 +171,31 @@ struct WorkoutPromptBuilder {
             ]
         }
         
-        IMPORTANT:
+        CRITICAL:
         - Include 2-3 rest days (can be active recovery)
-        - For rest days, set is_rest_day to true and exercises to empty array
         - Include equipment_needed for each exercise
         - Use appropriate rep ranges: 4-6 for strength, 8-12 for hypertrophy, 12-15+ for endurance
         - All dates should start from today and be consecutive
         - Provide 6-10 exercises per workout day
-        - Include specific warmup for the muscle groups being trained
+        - Match workout times to user's peak activity hours
         """
     }
-    
-    // MARK: - Clarifying Questions Prompt
     
     static func buildClarifyingQuestionsPrompt(userInput: String, planTypes: [WorkoutPlanType]) -> String {
         let planContext = planTypes.map { $0.displayName }.joined(separator: " and ")
         
         return """
-        The user wants to create a \(planContext) workout plan with this input:
-        "\(userInput)"
+        User wants \(planContext) workout plan: "\(userInput)"
         
-        Analyze if you need more information to create an effective, personalized workout plan.
+        Need more info? Respond JSON:
+        {"needs_clarification": false, "questions": []} OR
+        {"needs_clarification": true, "questions": [{"id": "q1", "text": "Question?", "answer_kind": "text|number|choice|binary", "choices": ["opt1"] or null, "context": "home|gym|common", "is_required": true, "hint": "hint"}]}
         
-        RESPOND WITH THIS EXACT JSON STRUCTURE:
-        {
-            "needs_clarification": true or false,
-            "questions": [
-                {
-                    "id": "unique_id",
-                    "text": "Your question here?",
-                    "answer_kind": "text" | "number" | "choice" | "binary",
-                    "choices": ["Option 1", "Option 2"] or null,
-                    "context": "home" | "gym" | "common",
-                    "is_required": true or false,
-                    "hint": "Optional hint text"
-                }
-            ]
-        }
-        
-        QUESTION GUIDELINES:
-        - Ask 3-5 questions maximum
-        - Focus on: fitness level, available time, specific goals, injuries/limitations
-        - For "home" context: ask about available equipment
-        - For "gym" context: ask about gym experience
-        - For "common" context: questions that apply to both
-        - Use "binary" for yes/no questions
-        - Use "choice" when there are clear options
-        - Set is_required to true for essential information
-        
-        If the input is already detailed enough, set needs_clarification to false and questions to an empty array.
+        Ask 3-5 questions max. Focus on: fitness level, available time, specific goals, injuries/limitations.
+        For "home" context: ask about available equipment.
+        For "gym" context: ask about gym experience.
         """
     }
-    
-    // MARK: - Combined Plan Prompt
     
     static func buildCombinedPlanPrompt(
         preferences: String,
@@ -259,5 +243,64 @@ struct WorkoutPromptBuilder {
         
         Both plans should target the same goals but with different approaches.
         """
+    }
+    
+    static func conversationalSystemPrompt(planTypes: [WorkoutPlanType]) -> String {
+        let planTypeText = planTypes.map { $0.displayName }.joined(separator: " and ")
+        
+        return """
+        You are a friendly fitness coach gathering information to create a personalized \(planTypeText).
+        
+        BEHAVIOR RULES:
+        1. Ask ONE focused, conversational question at a time
+        2. Be motivating and supportive
+        3. Remember what the user already told you - don't repeat questions
+        4. After gathering enough info (typically 3-6 exchanges), indicate you're ready
+        5. You can be ready earlier if user provides comprehensive info upfront
+        6. SKIP questions about info already in USER CONTEXT - use that data directly
+        
+        INFORMATION TO GATHER (only if not in context):
+        - Fitness goals (strength, weight loss, muscle gain, endurance)
+        - Current fitness level / experience
+        - Available equipment (if home workout)
+        - Days per week they can work out
+        - Time per session
+        - Any injuries or limitations
+        - Exercise preferences or dislikes
+        
+        RESPOND WITH EXACTLY THIS JSON FORMAT:
+        
+        If you need more info:
+        {
+            "type": "question",
+            "message": "<Your friendly, motivating question>"
+        }
+        
+        If you have enough info:
+        {
+            "type": "ready",
+            "message": "<Encouraging message saying you're ready to create their plan>",
+            "summary": "<Brief summary of their fitness profile>"
+        }
+        
+        IMPORTANT: Output valid JSON only. No markdown, no explanatory text.
+        """
+    }
+    
+    static func buildConversationPrompt(
+        history: [ChatMessage],
+        collectedContext: String
+    ) -> String {
+        var prompt = "CONVERSATION HISTORY:\n"
+        
+        for message in history {
+            let role = message.role == .user ? "User" : "Assistant"
+            prompt += "\(role): \(message.content)\n"
+        }
+        
+        prompt += "\nCOLLECTED CONTEXT SO FAR:\n\(collectedContext)\n"
+        prompt += "\nBased on this conversation, provide your next response."
+        
+        return prompt
     }
 }

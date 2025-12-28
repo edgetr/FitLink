@@ -49,12 +49,16 @@ struct ProfileView: View {
         .confirmationDialog("Change Photo", isPresented: $viewModel.showingPhotoOptions, titleVisibility: .visible) {
             if viewModel.isCameraAvailable {
                 Button("Take Photo") {
-                    viewModel.selectImageFromCamera()
+                    Task {
+                        await viewModel.selectImageFromCamera()
+                    }
                 }
             }
             
             Button("Choose from Library") {
-                viewModel.selectImageFromLibrary()
+                Task {
+                    await viewModel.selectImageFromLibrary()
+                }
             }
             
             if viewModel.hasProfileImage {

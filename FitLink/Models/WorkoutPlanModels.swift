@@ -54,6 +54,18 @@ struct WorkoutExercise: Identifiable, Codable, Hashable {
         self.equipmentNeeded = equipmentNeeded
     }
     
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = (try? container.decode(UUID.self, forKey: .id)) ?? UUID()
+        self.name = try container.decode(String.self, forKey: .name)
+        self.sets = try container.decodeIfPresent(Int.self, forKey: .sets)
+        self.reps = try container.decodeIfPresent(String.self, forKey: .reps)
+        self.durationSeconds = try container.decodeIfPresent(Int.self, forKey: .durationSeconds)
+        self.restSeconds = try container.decodeIfPresent(Int.self, forKey: .restSeconds)
+        self.notes = try container.decodeIfPresent(String.self, forKey: .notes)
+        self.equipmentNeeded = try container.decodeIfPresent(String.self, forKey: .equipmentNeeded)
+    }
+    
     var formattedSetsReps: String {
         if let sets = sets, let reps = reps {
             return "\(sets) × \(reps)"
@@ -126,6 +138,19 @@ struct WorkoutDay: Identifiable, Codable, Hashable {
         self.notes = notes
         self.warmup = warmup
         self.cooldown = cooldown
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = (try? container.decode(UUID.self, forKey: .id)) ?? UUID()
+        self.day = try container.decode(Int.self, forKey: .day)
+        self.date = (try? container.decode(String.self, forKey: .date)) ?? ""
+        self.isRestDay = (try? container.decode(Bool.self, forKey: .isRestDay)) ?? false
+        self.focus = (try? container.decode([String].self, forKey: .focus)) ?? []
+        self.exercises = (try? container.decode([WorkoutExercise].self, forKey: .exercises)) ?? []
+        self.notes = try container.decodeIfPresent(String.self, forKey: .notes)
+        self.warmup = try container.decodeIfPresent([WorkoutExercise].self, forKey: .warmup)
+        self.cooldown = try container.decodeIfPresent([WorkoutExercise].self, forKey: .cooldown)
     }
     
     var formattedFocus: String {
@@ -219,6 +244,18 @@ struct WeeklyWorkoutPlan: Identifiable, Codable, Hashable {
         self.difficulty = difficulty
         self.equipment = equipment
         self.goals = goals
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = (try? container.decode(UUID.self, forKey: .id)) ?? UUID()
+        self.title = (try? container.decode(String.self, forKey: .title)) ?? "Weekly Workout Plan"
+        self.totalDays = (try? container.decode(Int.self, forKey: .totalDays)) ?? 7
+        self.days = (try? container.decode([WorkoutDay].self, forKey: .days)) ?? []
+        self.createdAt = (try? container.decode(Date.self, forKey: .createdAt)) ?? Date()
+        self.difficulty = (try? container.decode(WorkoutDifficulty.self, forKey: .difficulty)) ?? .intermediate
+        self.equipment = (try? container.decode([String].self, forKey: .equipment)) ?? []
+        self.goals = (try? container.decode([String].self, forKey: .goals)) ?? []
     }
     
     var formattedCreatedDate: String {
@@ -506,24 +543,19 @@ enum PlanSelection: String, CaseIterable {
 
 enum WizardFlowState: Equatable {
     case idle
-    case fetchingQuestions
-    case askingFollowUps
+    case conversing
+    case readyToGenerate
     case generatingPlan
     case planReady
     case failed(String)
     
     var isLoading: Bool {
-        switch self {
-        case .fetchingQuestions, .generatingPlan:
-            return true
-        default:
-            return false
-        }
+        self == .generatingPlan
     }
     
     var canGeneratePlan: Bool {
         switch self {
-        case .idle, .askingFollowUps, .failed:
+        case .idle, .readyToGenerate, .failed:
             return true
         default:
             return false

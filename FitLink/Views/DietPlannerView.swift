@@ -36,8 +36,11 @@ struct DietPlannerView: View {
                 }
             }
             .onAppear {
-                if let userId = sessionManager.user?.id {
+                if let userId = sessionManager.currentUserID {
                     viewModel.userId = userId
+                    Task {
+                        await viewModel.checkPendingGenerations()
+                    }
                 }
             }
             .onChange(of: viewModel.currentDietPlan?.hasFilledData) { hasFilledData in
@@ -50,23 +53,55 @@ struct DietPlannerView: View {
     
     @ViewBuilder
     private var contentView: some View {
-        if viewModel.isLoadingPlans {
+        switch viewModel.viewState {
+        case .loadingPlans:
             DietPlanLoadingView(message: "Loading your plans...")
-        } else if viewModel.isGenerating {
-            DietPlanLoadingView(message: "Creating your perfect meal plan...\nThis may take a minute.")
-        } else if viewModel.hasGenerationFailed {
-            DietPlanErrorView(viewModel: viewModel)
-        } else if viewModel.isAwaitingClarifications {
-            ClarifyingQuestionsView(viewModel: viewModel)
-        } else if let plan = viewModel.currentDietPlan {
-            DietPlanContentView(
-                viewModel: viewModel,
-                plan: plan,
-                onSelectRecipe: { recipe, nutrition in
-                    selectedRecipeParams = RecipeDetailParams(recipe: recipe, nutrition: nutrition)
+        case .fetchingClarifications:
+            DietPlanLoadingView(message: "Analyzing your preferences...")
+        case .conversing, .readyToGenerate:
+            ChatConversationView(
+                messages: viewModel.chatMessages,
+                isLoading: viewModel.isProcessingMessage,
+                isReadyToGenerate: viewModel.isReadyToGenerate,
+                readySummary: viewModel.readySummary,
+                onSendMessage: { text in
+                    Task {
+                        await viewModel.sendMessage(text)
+                    }
+                },
+                onGeneratePlan: {
+                    Task {
+                        await viewModel.startPlanGeneration()
+                    }
+                },
+                onMoreQuestions: {
+                    Task {
+                        await viewModel.requestMoreQuestions()
+                    }
                 }
             )
-        } else {
+        case .generating:
+            DietPlanGeneratingView(
+                progress: viewModel.generationProgress,
+                canCloseApp: true
+            )
+        case .generationFailed:
+            DietPlanErrorView(viewModel: viewModel)
+        case .awaitingClarifications:
+            ClarifyingQuestionsView(viewModel: viewModel)
+        case .showingPlan:
+            if let plan = viewModel.currentDietPlan {
+                DietPlanContentView(
+                    viewModel: viewModel,
+                    plan: plan,
+                    onSelectRecipe: { recipe, nutrition in
+                        selectedRecipeParams = RecipeDetailParams(recipe: recipe, nutrition: nutrition)
+                    }
+                )
+            } else {
+                DietPlanInputView(viewModel: viewModel)
+            }
+        case .idle:
             DietPlanInputView(viewModel: viewModel)
         }
     }
@@ -100,8 +135,15 @@ struct DietPlannerView: View {
                     }
                 }
                 
-                GlassTextPillButton("New Plan", icon: "plus") {
-                    viewModel.resetPlan()
+                if viewModel.viewState == .conversing || viewModel.viewState == .readyToGenerate {
+                    Button("Cancel") {
+                        viewModel.startOver()
+                    }
+                    .foregroundStyle(.red)
+                } else {
+                    GlassTextPillButton("New Plan", icon: "plus") {
+                        viewModel.resetPlan()
+                    }
                 }
             }
         }
@@ -126,6 +168,59 @@ private struct DietPlanLoadingView: View {
                 .font(.headline)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(UIColor.systemGroupedBackground))
+    }
+}
+
+private struct DietPlanGeneratingView: View {
+    let progress: Double
+    let canCloseApp: Bool
+    
+    var body: some View {
+        VStack(spacing: 32) {
+            VStack(spacing: 16) {
+                ProgressView()
+                    .scaleEffect(1.5)
+                
+                Text("Creating your perfect meal plan...")
+                    .font(.headline)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary)
+                
+                if progress > 0 {
+                    ProgressView(value: progress)
+                        .tint(.green)
+                        .padding(.horizontal, 40)
+                    
+                    Text("\(Int(progress * 100))% complete")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            
+            if canCloseApp {
+                GlassCard(tint: .blue.opacity(0.1)) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "bell.badge.fill")
+                            .font(.title2)
+                            .foregroundStyle(.blue)
+                        
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("You can close the app")
+                                .font(.headline)
+                            Text("We'll send you a notification when your plan is ready!")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        
+                        Spacer()
+                    }
+                    .padding()
+                }
+                .padding(.horizontal)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(UIColor.systemGroupedBackground))
@@ -205,7 +300,6 @@ private struct DietPlanInputView: View {
         ZStack(alignment: .bottom) {
             ScrollView {
                 VStack(spacing: 24) {
-                    // Header with AI Avatar
                     VStack(spacing: 16) {
                         Circle()
                             .fill(
@@ -228,25 +322,24 @@ private struct DietPlanInputView: View {
                                 .font(.title2)
                                 .fontWeight(.bold)
                             
-                            Text("Design your perfect meal plan")
+                            Text("Tell me about your dietary needs")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
                     }
                     .padding(.top, 40)
                     
-                    // Onboarding Tip
                     if !viewModel.hasSeenOnboardingTip {
                         GlassCard(tint: .green.opacity(0.1), isInteractive: true) {
                             HStack(alignment: .top, spacing: 16) {
-                                Image(systemName: "lightbulb.fill")
+                                Image(systemName: "message.fill")
                                     .font(.title)
-                                    .foregroundStyle(.yellow)
+                                    .foregroundStyle(.green)
                                 
                                 VStack(alignment: .leading, spacing: 8) {
-                                    Text("Personalized Nutrition")
+                                    Text("Let's Chat!")
                                         .font(.headline)
-                                    Text("Tell me your dietary preferences, goals, and any restrictions. I'll create a personalized 7-day meal plan for you.")
+                                    Text("I'll ask you a few questions to understand your needs, then create a personalized 7-day meal plan just for you.")
                                         .font(.subheadline)
                                         .foregroundStyle(.secondary)
                                 }
@@ -266,23 +359,21 @@ private struct DietPlanInputView: View {
                         }
                     }
                     
-                    // Example Prompts
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Try these examples:")
                             .font(.headline)
                             .padding(.horizontal, 4)
                         
                         FlowLayout(spacing: 8) {
-                            SuggestionChip(text: "High protein, muscle gain", viewModel: viewModel)
-                            SuggestionChip(text: "Vegetarian, 1800 cal", viewModel: viewModel)
-                            SuggestionChip(text: "Mediterranean, family of 4", viewModel: viewModel)
-                            SuggestionChip(text: "Keto, low carb", viewModel: viewModel)
-                            SuggestionChip(text: "Budget friendly, quick meals", viewModel: viewModel)
+                            SuggestionChip(text: "I want to eat healthier", viewModel: viewModel)
+                            SuggestionChip(text: "High protein for muscle gain", viewModel: viewModel)
+                            SuggestionChip(text: "Vegetarian, 1800 calories", viewModel: viewModel)
+                            SuggestionChip(text: "Quick meals for busy schedule", viewModel: viewModel)
+                            SuggestionChip(text: "Mediterranean diet", viewModel: viewModel)
                         }
                     }
                     
-                    // Spacer for bottom bar
-                    Spacer().frame(height: 80)
+                    Spacer().frame(height: 100)
                 }
                 .padding()
             }
@@ -290,88 +381,19 @@ private struct DietPlanInputView: View {
                 isInputFocused = false
             }
             
-            // Chat Input Bar
-            DietPlannerChatBar(
+            ChatInputBar(
                 text: $viewModel.preferences,
-                isLoading: viewModel.isFetchingClarifications,
+                isLoading: false,
+                placeholder: "Describe your ideal diet...",
+                accentColor: .green,
                 onSend: {
                     isInputFocused = false
                     Task {
-                        await viewModel.askClarifyingQuestionsIfNeeded()
+                        await viewModel.startConversation(initialPrompt: viewModel.preferences)
                     }
                 }
             )
             .focused($isInputFocused)
-        }
-    }
-}
-
-private struct DietPlannerChatBar: View {
-    @Binding var text: String
-    var isLoading: Bool
-    var onSend: () -> Void
-    
-    @FocusState private var isFocused: Bool
-    
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                // Text Field
-                TextField("Describe your ideal diet plan...", text: $text)
-                    .textFieldStyle(.plain)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .background(
-                        Capsule()
-                            .fill(Color(UIColor.secondarySystemGroupedBackground))
-                            .overlay(
-                                Capsule()
-                                    .strokeBorder(Color.secondary.opacity(0.3), lineWidth: 1)
-                            )
-                    )
-                    .focused($isFocused)
-                    .disabled(isLoading)
-                
-                // Send/Loading Button
-                Button(action: {
-                    onSend()
-                    isFocused = false
-                }) {
-                    ZStack {
-                        Circle()
-                            .fill(
-                                LinearGradient(
-                                    colors: [.green, .teal],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                        
-                        if isLoading {
-                            ProgressView()
-                                .tint(.white)
-                        } else {
-                            Image(systemName: "arrow.up")
-                                .font(.system(size: 20, weight: .bold))
-                                .foregroundStyle(.white)
-                        }
-                    }
-                    .frame(width: 44, height: 44)
-                    .shadow(color: .green.opacity(0.3), radius: 4, x: 0, y: 2)
-                }
-                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isLoading)
-            }
-            .padding(12)
-            .background(Color(UIColor.secondarySystemGroupedBackground))
-            .clipShape(
-                .rect(
-                    topLeadingRadius: 20,
-                    bottomLeadingRadius: 0,
-                    bottomTrailingRadius: 0,
-                    topTrailingRadius: 20
-                )
-            )
-            .shadow(color: .black.opacity(0.05), radius: 5, y: -2)
         }
     }
 }

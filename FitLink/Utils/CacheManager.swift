@@ -7,6 +7,46 @@
 
 import Foundation
 import UIKit
+import CryptoKit
+
+// MARK: - Cache Policy
+
+/// Defines TTL policies for different cache domains
+enum CacheDomain {
+    case image
+    case apiResponse
+    case userProfile
+    
+    var ttl: TimeInterval {
+        switch self {
+        case .image:
+            return 7 * 24 * 60 * 60 // 7 days
+        case .apiResponse:
+            return 30 * 60 // 30 minutes
+        case .userProfile:
+            return 60 * 60 // 1 hour
+        }
+    }
+}
+
+/// Cache metrics for instrumentation
+struct CacheMetrics {
+    var memoryHits: Int = 0
+    var memoryMisses: Int = 0
+    var diskHits: Int = 0
+    var diskMisses: Int = 0
+    var networkFetches: Int = 0
+    
+    var memoryHitRate: Double {
+        let total = memoryHits + memoryMisses
+        return total > 0 ? Double(memoryHits) / Double(total) : 0
+    }
+    
+    var diskHitRate: Double {
+        let total = diskHits + diskMisses
+        return total > 0 ? Double(diskHits) / Double(total) : 0
+    }
+}
 
 /// Centralized cache manager for images and API responses.
 /// Uses NSCache for memory-efficient caching with automatic cleanup on memory pressure.
@@ -59,7 +99,6 @@ final class CacheManager {
     /// Lock for thread-safe disk cache operations
     private let diskCacheLock = NSLock()
     
-    /// Disk cache directory
     private lazy var diskCacheDirectory: URL? = {
         let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
         let fitlinkCache = cacheDir?.appendingPathComponent("FitLinkCache", isDirectory: true)
@@ -71,6 +110,9 @@ final class CacheManager {
         return fitlinkCache
     }()
     
+    private var metrics = CacheMetrics()
+    private let metricsLock = NSLock()
+    
     // MARK: - Initialization
     
     private init() {
@@ -78,28 +120,53 @@ final class CacheManager {
         log("CacheManager initialized")
     }
     
-    // MARK: - Image Cache Methods
+    // MARK: - Stable Key Generation
     
-    /// Caches an image with the given key
-    /// - Parameters:
-    ///   - image: The image to cache
-    ///   - key: The cache key (typically the image URL)
-    func cacheImage(_ image: UIImage, forKey key: String) {
-        let cacheKey = NSString(string: key)
-        let cost = Int(image.size.width * image.size.height * image.scale * 4) // Approximate bytes
-        imageCache.setObject(image, forKey: cacheKey, cost: cost)
-        log("Cached image for key: \(key.prefix(50))...")
+    func stableKey(for input: String) -> String {
+        let inputData = Data(input.utf8)
+        let hash = SHA256.hash(data: inputData)
+        return hash.compactMap { String(format: "%02x", $0) }.joined()
     }
     
-    /// Retrieves a cached image
-    /// - Parameter key: The cache key
-    /// - Returns: The cached image if available
-    func getCachedImage(forKey key: String) -> UIImage? {
+    func stableKey(for url: URL) -> String {
+        stableKey(for: url.absoluteString)
+    }
+    
+    // MARK: - Image Cache Methods
+    
+    func cacheImage(_ image: UIImage, forKey key: String, persistToDisk: Bool = false) {
         let cacheKey = NSString(string: key)
+        let cost = Int(image.size.width * image.size.height * image.scale * 4)
+        imageCache.setObject(image, forKey: cacheKey, cost: cost)
+        log("Cached image for key: \(key.prefix(50))...")
+        
+        if persistToDisk, let data = image.jpegData(compressionQuality: 0.8) {
+            let diskKey = stableKey(for: key) + ".jpg"
+            saveToDisk(data, forKey: diskKey)
+        }
+    }
+    
+    func getCachedImage(forKey key: String, checkDisk: Bool = false) -> UIImage? {
+        let cacheKey = NSString(string: key)
+        
         if let image = imageCache.object(forKey: cacheKey) {
-            log("Cache hit for image: \(key.prefix(50))...")
+            recordMetric { $0.memoryHits += 1 }
+            log("Memory cache hit for image: \(key.prefix(50))...")
             return image
         }
+        recordMetric { $0.memoryMisses += 1 }
+        
+        if checkDisk {
+            let diskKey = stableKey(for: key) + ".jpg"
+            if let data = loadFromDisk(forKey: diskKey), let image = UIImage(data: data) {
+                imageCache.setObject(image, forKey: cacheKey)
+                recordMetric { $0.diskHits += 1 }
+                log("Disk cache hit for image: \(key.prefix(50))...")
+                return image
+            }
+            recordMetric { $0.diskMisses += 1 }
+        }
+        
         log("Cache miss for image: \(key.prefix(50))...")
         return nil
     }
@@ -293,9 +360,39 @@ final class CacheManager {
     }
     
     @objc private func handleMemoryWarning() {
-        log("Received memory warning - clearing memory caches")
+        log("Received memory warning - clearing memory caches only (preserving disk cache)")
         clearImageCache()
         clearResponseCache()
+    }
+    
+    func clearMemoryCachesOnly() {
+        clearImageCache()
+        clearResponseCache()
+        log("Cleared memory caches only (disk cache preserved)")
+    }
+    
+    // MARK: - Metrics
+    
+    private func recordMetric(_ update: (inout CacheMetrics) -> Void) {
+        metricsLock.lock()
+        defer { metricsLock.unlock() }
+        update(&metrics)
+    }
+    
+    func recordNetworkFetch() {
+        recordMetric { $0.networkFetches += 1 }
+    }
+    
+    func getMetrics() -> CacheMetrics {
+        metricsLock.lock()
+        defer { metricsLock.unlock() }
+        return metrics
+    }
+    
+    func resetMetrics() {
+        metricsLock.lock()
+        defer { metricsLock.unlock() }
+        metrics = CacheMetrics()
     }
     
     // MARK: - Logging

@@ -7,31 +7,61 @@ import UserNotifications
 import UIKit
 #endif
 
+enum DietPlannerViewState: Equatable {
+    case idle
+    case loadingPlans
+    case conversing
+    case readyToGenerate
+    case generating
+    case generationFailed
+    case showingPlan
+    case fetchingClarifications
+    case awaitingClarifications
+}
+
 @MainActor
 class DietPlannerViewModel: ObservableObject {
+    
+    // MARK: - Primary View State (Single source of truth)
+    @Published var viewState: DietPlannerViewState = .idle
     
     @Published var currentDietPlan: DietPlan?
     @Published var allDietPlans: [DietPlan] = []
     @Published var selectedDayIndex: Int = 0
-    @Published var isGenerating = false
-    @Published var isLoadingPlans = false
     @Published var generationProgress: Double = 0.0
-    @Published var hasGenerationFailed = false
     @Published var errorMessage: String?
     @Published var isOnline: Bool? = true
     @Published var preferences: String = ""
     
     @Published var pendingClarificationQuestions: [ClarifyingQuestion] = []
     @Published var clarificationAnswers: [String: String] = [:]
-    @Published var isAwaitingClarifications = false
-    @Published var isFetchingClarifications = false
     @Published var hasSeenOnboardingTip: Bool
+    
+    // MARK: - Chat Conversation Properties
+    @Published var chatMessages: [ChatMessage] = []
+    @Published var isProcessingMessage: Bool = false
+    @Published var currentGenerationId: String?
+    @Published var readySummary: String?
+    
+    // MARK: - Computed Properties
+    var isGenerating: Bool { viewState == .generating }
+    var isLoadingPlans: Bool { viewState == .loadingPlans }
+    var hasGenerationFailed: Bool { viewState == .generationFailed }
+    var isAwaitingClarifications: Bool { viewState == .awaitingClarifications }
+    var isFetchingClarifications: Bool { viewState == .fetchingClarifications }
+    var isConversing: Bool { viewState == .conversing }
+    var isReadyToGenerate: Bool { viewState == .readyToGenerate }
+    var canSendMessage: Bool { viewState == .conversing && !isProcessingMessage }
+    var messageCount: Int { chatMessages.filter { $0.role == .user }.count }
+    var isAtMaxMessages: Bool { messageCount >= PendingGeneration.maxMessages }
     
     @Published var shareItems: [Any] = []
     @Published var isShowingShareSheet = false
     
     private let geminiService: GeminiAIService
     private let dietPlanService = DietPlanService.shared
+    private let planGenerationService = PlanGenerationService.shared
+    private let contextProvider = UserContextProvider.shared
     private let eventStore = EKEventStore()
     private var cancellables = Set<AnyCancellable>()
     private let maxRetryAttempts = 3
@@ -73,12 +103,60 @@ class DietPlannerViewModel: ObservableObject {
         self.geminiService = GeminiAIService()
         self.hasSeenOnboardingTip = UserDefaults.standard.bool(forKey: "diet_planner_onboarding_seen")
         
+        restoreConversationState()
         restoreQuestionState()
         restoreLastSelectedPlanId()
+        
+        setupNotificationObservers()
         
         Task {
             await requestNotificationPermission()
         }
+    }
+    
+    private func setupNotificationObservers() {
+        NotificationCenter.default.addObserver(
+            forName: .planGenerationCompleted,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            Task { @MainActor [weak self] in
+                self?.handleGenerationCompletedNotification(notification)
+            }
+        }
+    }
+    
+    private func handleGenerationCompletedNotification(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let planTypeRaw = userInfo["planType"] as? String,
+              let planType = GenerationPlanType(rawValue: planTypeRaw),
+              planType == .diet else {
+            return
+        }
+        
+        guard let resultPlanId = userInfo["resultPlanId"] as? String,
+              !resultPlanId.isEmpty else {
+            return
+        }
+        
+        Task { @MainActor in
+            do {
+                if let plan = try await dietPlanService.loadPlan(byId: resultPlanId) {
+                    currentDietPlan = plan
+                    if !allDietPlans.contains(where: { $0.id == plan.id }) {
+                        allDietPlans.insert(plan, at: 0)
+                    }
+                    viewState = .showingPlan
+                    clearConversationState()
+                }
+            } catch {
+                log("Error loading completed plan: \(error)")
+            }
+        }
+    }
+    
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
     
     func getDietPlanDates(for plan: DietPlan) -> [Date] {
@@ -94,13 +172,21 @@ class DietPlannerViewModel: ObservableObject {
             return
         }
         
-        isFetchingClarifications = true
-        hasGenerationFailed = false
+        viewState = .fetchingClarifications
         errorMessage = nil
         
         do {
             let prompt = DietPlannerSystemPrompt.buildClarifyingQuestionsPrompt(userInput: preferences)
-            let response = try await geminiService.askClarifyingQuestions(prompt)
+            let systemPrompt = "You determine if more info is needed for meal planning. Respond with valid JSON only."
+            
+            let response = try await geminiService.sendPrompt(
+                prompt,
+                systemPrompt: systemPrompt,
+                model: .flash,
+                thinkingLevel: .minimal,
+                maxTokens: 2000,
+                temperature: 0.5
+            )
             let jsonString = GeminiAIService.extractJSON(from: response)
             
             guard let data = jsonString.data(using: .utf8) else {
@@ -111,7 +197,7 @@ class DietPlannerViewModel: ObservableObject {
             
             if clarificationResponse.needsClarification, let questions = clarificationResponse.questions {
                 pendingClarificationQuestions = questions
-                isAwaitingClarifications = true
+                viewState = .awaitingClarifications
                 saveQuestionState()
             } else {
                 await generateDietPlan()
@@ -120,12 +206,10 @@ class DietPlannerViewModel: ObservableObject {
             log("Error fetching clarifications: \(error)")
             await generateDietPlan()
         }
-        
-        isFetchingClarifications = false
     }
     
     func submitClarificationAnswers() async {
-        isAwaitingClarifications = false
+        viewState = .generating
         
         var enhancedPreferences = preferences
         for question in pendingClarificationQuestions {
@@ -139,17 +223,241 @@ class DietPlannerViewModel: ObservableObject {
         clarificationAnswers = [:]
         clearQuestionState()
         
-        await generateDietPlan()
+        await generateDietPlanInternal()
     }
     
     func skipClarifications() {
-        isAwaitingClarifications = false
+        viewState = .generating
         pendingClarificationQuestions = []
         clarificationAnswers = [:]
         clearQuestionState()
         
         Task {
+            await generateDietPlanInternal()
+        }
+    }
+    
+    // MARK: - Chat Conversation Flow
+    
+    func startConversation(initialPrompt: String) async {
+        guard !initialPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            errorMessage = "Please enter your dietary preferences."
+            return
+        }
+        
+        guard let userId = userId else {
+            errorMessage = "User not authenticated."
+            return
+        }
+        
+        chatMessages = []
+        readySummary = nil
+        errorMessage = nil
+        preferences = initialPrompt
+        
+        let userMessage = ChatMessage.user(initialPrompt)
+        chatMessages.append(userMessage)
+        
+        viewState = .conversing
+        isProcessingMessage = true
+        
+        do {
+            let generation = try await planGenerationService.createPendingGeneration(
+                userId: userId,
+                planType: .diet,
+                initialPrompt: initialPrompt
+            )
+            currentGenerationId = generation.id
+            
+            let response = try await geminiService.sendDietConversation(
+                conversationHistory: chatMessages,
+                collectedContext: initialPrompt,
+                isForced: false
+            )
+            
+            let assistantMessage = ChatMessage.assistant(
+                response.message,
+                type: response.responseType
+            )
+            chatMessages.append(assistantMessage)
+            
+            try await planGenerationService.addMessage(
+                generationId: generation.id,
+                message: assistantMessage,
+                updatedContext: initialPrompt
+            )
+            
+            if response.responseType == .ready {
+                readySummary = response.summary
+                viewState = .readyToGenerate
+            }
+            
+            saveConversationState()
+            
+        } catch {
+            log("Error starting conversation: \(error)")
+            errorMessage = "Failed to start conversation. Please try again."
+            viewState = .idle
+        }
+        
+        isProcessingMessage = false
+    }
+    
+    func sendMessage(_ text: String) async {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard let generationId = currentGenerationId else {
+            errorMessage = "No active conversation."
+            return
+        }
+        
+        let userMessage = ChatMessage.user(text)
+        chatMessages.append(userMessage)
+        
+        isProcessingMessage = true
+        
+        let updatedContext = GeminiAIService.accumulateContext(
+            existingContext: preferences,
+            newUserMessage: text
+        )
+        preferences = updatedContext
+        
+        let isForced = messageCount >= PendingGeneration.maxMessages
+        
+        do {
+            try await planGenerationService.addMessage(
+                generationId: generationId,
+                message: userMessage,
+                updatedContext: updatedContext
+            )
+            
+            let response = try await geminiService.sendDietConversation(
+                conversationHistory: chatMessages,
+                collectedContext: updatedContext,
+                isForced: isForced
+            )
+            
+            let assistantMessage = ChatMessage.assistant(
+                response.message,
+                type: response.responseType
+            )
+            chatMessages.append(assistantMessage)
+            
+            try await planGenerationService.addMessage(
+                generationId: generationId,
+                message: assistantMessage,
+                updatedContext: updatedContext
+            )
+            
+            if response.responseType == .ready {
+                readySummary = response.summary
+                viewState = .readyToGenerate
+            }
+            
+            saveConversationState()
+            
+        } catch {
+            log("Error sending message: \(error)")
+            errorMessage = "Failed to send message. Please try again."
+            chatMessages.removeLast()
+        }
+        
+        isProcessingMessage = false
+    }
+    
+    func requestMoreQuestions() async {
+        guard let generationId = currentGenerationId else { return }
+        
+        let userMessage = ChatMessage.user("I'd like to provide more details about my preferences.")
+        chatMessages.append(userMessage)
+        
+        viewState = .conversing
+        isProcessingMessage = true
+        
+        do {
+            try await planGenerationService.addMessage(
+                generationId: generationId,
+                message: userMessage,
+                updatedContext: preferences
+            )
+            
+            let response = try await geminiService.sendDietConversation(
+                conversationHistory: chatMessages,
+                collectedContext: preferences,
+                isForced: false
+            )
+            
+            let assistantMessage = ChatMessage.assistant(
+                response.message,
+                type: response.responseType
+            )
+            chatMessages.append(assistantMessage)
+            
+            try await planGenerationService.addMessage(
+                generationId: generationId,
+                message: assistantMessage,
+                updatedContext: preferences
+            )
+            
+            if response.responseType == .ready {
+                readySummary = response.summary
+                viewState = .readyToGenerate
+            }
+            
+            saveConversationState()
+            
+        } catch {
+            log("Error requesting more questions: \(error)")
+            errorMessage = "Failed to continue conversation."
+        }
+        
+        isProcessingMessage = false
+    }
+    
+    func startPlanGeneration() async {
+        guard let userId = userId else {
+            errorMessage = "User not authenticated."
+            return
+        }
+        
+        guard let generationId = currentGenerationId else {
             await generateDietPlan()
+            return
+        }
+        
+        viewState = .generating
+        errorMessage = nil
+        generationProgress = 0.0
+        
+        do {
+            try await planGenerationService.startGeneration(generationId)
+            
+            await performDietPlanGeneration(userId: userId)
+            
+            if let plan = currentDietPlan {
+                try await planGenerationService.markCompleted(
+                    generationId: generationId,
+                    resultPlanId: plan.id
+                )
+                
+                try? await NotificationService.shared.schedulePlanCompleteNotification(
+                    planType: .diet,
+                    planName: "Meal Plan"
+                )
+                
+                try await planGenerationService.markNotificationSent(generationId)
+            }
+            
+            clearConversationState()
+            
+        } catch {
+            log("Error during plan generation: \(error)")
+            
+            if let generationId = currentGenerationId {
+                try? await planGenerationService.markFailed(
+                    generationId: generationId,
+                    error: error.localizedDescription
+                )
+            }
         }
     }
     
@@ -157,8 +465,12 @@ class DietPlannerViewModel: ObservableObject {
         preferences = ""
         pendingClarificationQuestions = []
         clarificationAnswers = [:]
-        isAwaitingClarifications = false
+        chatMessages = []
+        currentGenerationId = nil
+        readySummary = nil
+        viewState = .idle
         clearQuestionState()
+        clearConversationState()
     }
     
     func generateDietPlan() async {
@@ -172,8 +484,27 @@ class DietPlannerViewModel: ObservableObject {
             return
         }
         
-        isGenerating = true
-        hasGenerationFailed = false
+        viewState = .generating
+        await performDietPlanGeneration(userId: userId)
+    }
+    
+    private func generateDietPlanInternal() async {
+        guard let userId = userId else {
+            errorMessage = "User not authenticated."
+            viewState = .generationFailed
+            return
+        }
+
+        guard !preferences.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            errorMessage = "Please enter your dietary preferences."
+            viewState = .generationFailed
+            return
+        }
+
+        await performDietPlanGeneration(userId: userId)
+    }
+    
+    private func performDietPlanGeneration(userId: String) async {
         errorMessage = nil
         generationProgress = 0.0
         
@@ -182,38 +513,51 @@ class DietPlannerViewModel: ObservableObject {
             let pendingPlan = try await dietPlanService.createPendingPlan(userId: userId, preferences: preferences)
             currentDietPlan = pendingPlan
             
+            generationProgress = 0.15
+            
+            let userContext = try? await contextProvider.getContext(for: userId)
+            let contextString = userContext?.formatForPrompt() ?? ""
+            
+            log("Generating diet plan with context (completeness: \(Int((userContext?.profile?.profileCompleteness ?? 0) * 100))%)")
+            
             generationProgress = 0.2
             try await dietPlanService.updateGenerationStatus(planId: pendingPlan.id, status: .generating, progress: 0.2)
             
             generationProgress = 0.3
-            let userPrompt = DietPlannerSystemPrompt.buildUserPrompt(preferences: preferences)
-            let response = try await geminiService.sendPrompt(userPrompt, systemPrompt: DietPlannerSystemPrompt.systemPrompt)
+            
+            var fullPreferences = preferences
+            if !contextString.isEmpty {
+                fullPreferences = "USER CONTEXT:\n\(contextString)\n\nUSER REQUEST:\n\(preferences)"
+            }
+            
+            let userPrompt = DietPlannerSystemPrompt.buildUserPrompt(preferences: fullPreferences)
+            
+            let complexity = RequestComplexity.analyze(preferences: preferences)
+            let (model, thinkingLevel) = GeminiAIService.recommendedModel(for: complexity)
+            
+            log("Using model: \(model.rawValue), thinking: \(thinkingLevel.rawValue) for complexity: \(complexity)")
+            
+            let response = try await geminiService.sendPrompt(
+                userPrompt,
+                systemPrompt: DietPlannerSystemPrompt.systemPrompt,
+                model: model,
+                thinkingLevel: thinkingLevel,
+                maxTokens: 16000,
+                temperature: 1.0
+            )
             
             generationProgress = 0.7
             let jsonString = GeminiAIService.extractJSON(from: response)
             
-            guard let data = jsonString.data(using: .utf8) else {
-                throw GeminiAIService.APIError.parseError("Invalid response encoding")
-            }
+            generationProgress = 0.75
             
-            let aiResponse = try JSONDecoder().decode(AIGeneratedDietPlanResponse.self, from: data)
+            let generationResult = try await processAndValidateResponse(
+                jsonString: jsonString,
+                pendingPlan: pendingPlan,
+                userId: userId
+            )
             
-            generationProgress = 0.85
-            let validationResult = validateDietPlanResponse(aiResponse)
-            
-            if validationResult.isValid || validationResult.completeness >= partialSuccessThreshold {
-                populateDietPlan(pendingPlan, from: aiResponse)
-                
-                if !validationResult.isValid {
-                    handlePartialSuccess(plan: pendingPlan, missingFields: validationResult.missingFields)
-                }
-                
-                pendingPlan.generationStatus = validationResult.isValid ? .completed : .partialSuccess
-                pendingPlan.generationProgress = 1.0
-                
-                generationProgress = 0.95
-                try await dietPlanService.updatePlan(pendingPlan)
-                
+            if generationResult.success {
                 generationProgress = 1.0
                 currentDietPlan = pendingPlan
                 
@@ -223,24 +567,23 @@ class DietPlannerViewModel: ObservableObject {
                 
                 saveLastSelectedPlanId(pendingPlan.id)
                 autoSelectTodayIndex()
+                viewState = .showingPlan
             } else {
                 pendingPlan.generationStatus = .failed
                 try await dietPlanService.updatePlan(pendingPlan)
-                throw DietPlanGenerationError.insufficientData(validationResult.missingFields)
+                throw DietPlanGenerationError.insufficientData(generationResult.missingFields)
             }
         } catch {
             log("Diet plan generation failed: \(error)")
-            hasGenerationFailed = true
+            viewState = .generationFailed
             errorMessage = mapError(error)
         }
-        
-        isGenerating = false
     }
     
     func loadAllDietPlansForUser() async {
         guard let userId = userId else { return }
         
-        isLoadingPlans = true
+        viewState = .loadingPlans
         
         do {
             let archivedCount = try await dietPlanService.archiveOldPlans(userId: userId)
@@ -258,12 +601,17 @@ class DietPlannerViewModel: ObservableObject {
             }
             
             autoSelectTodayIndex()
+            
+            if currentDietPlan != nil {
+                viewState = .showingPlan
+            } else {
+                viewState = .idle
+            }
         } catch {
             log("Error loading diet plans: \(error)")
             errorMessage = "Failed to load your meal plans."
+            viewState = .idle
         }
-        
-        isLoadingPlans = false
     }
     
     func selectPlan(_ plan: DietPlan) {
@@ -277,11 +625,15 @@ class DietPlannerViewModel: ObservableObject {
         preferences = ""
         pendingClarificationQuestions = []
         clarificationAnswers = [:]
-        isAwaitingClarifications = false
-        hasGenerationFailed = false
+        chatMessages = []
+        currentGenerationId = nil
+        readySummary = nil
+        viewState = .idle
         errorMessage = nil
         generationProgress = 0.0
         selectedDayIndex = 0
+        
+        clearConversationState()
         UserDefaults.standard.removeObject(forKey: "diet_planner_last_plan_id")
     }
     
@@ -322,6 +674,7 @@ class DietPlannerViewModel: ObservableObject {
         guard let mealIndex = dailyPlan.meals.firstIndex(where: { $0.id == mealId }) else { return }
         
         let newIsDone = !dailyPlan.meals[mealIndex].isDone
+        let dayNumber = dailyPlan.day
         
         dailyPlan.meals[mealIndex].isDone = newIsDone
         plan.dailyPlans[selectedDayIndex] = dailyPlan
@@ -329,7 +682,7 @@ class DietPlannerViewModel: ObservableObject {
         do {
             try await dietPlanService.markMealDone(
                 planId: plan.id,
-                dailyPlanIndex: selectedDayIndex,
+                dayNumber: dayNumber,
                 mealId: mealId,
                 isDone: newIsDone
             )
@@ -456,7 +809,9 @@ class DietPlannerViewModel: ObservableObject {
         if let data = UserDefaults.standard.data(forKey: "diet_planner_pending_questions"),
            let questions = try? JSONDecoder().decode([ClarifyingQuestion].self, from: data) {
             pendingClarificationQuestions = questions
-            isAwaitingClarifications = !questions.isEmpty
+            if !questions.isEmpty {
+                viewState = .awaitingClarifications
+            }
         }
         
         if let answers = UserDefaults.standard.dictionary(forKey: "diet_planner_answers") as? [String: String] {
@@ -474,6 +829,100 @@ class DietPlannerViewModel: ObservableObject {
         UserDefaults.standard.removeObject(forKey: "diet_planner_preferences")
     }
     
+    // MARK: - Conversation State Persistence
+    
+    private func saveConversationState() {
+        if let data = try? JSONEncoder().encode(chatMessages) {
+            UserDefaults.standard.set(data, forKey: "diet_planner_chat_messages")
+        }
+        UserDefaults.standard.set(currentGenerationId, forKey: "diet_planner_generation_id")
+        UserDefaults.standard.set(preferences, forKey: "diet_planner_preferences")
+        UserDefaults.standard.set(readySummary, forKey: "diet_planner_ready_summary")
+        UserDefaults.standard.set(viewState == .readyToGenerate, forKey: "diet_planner_is_ready")
+        UserDefaults.standard.set(viewState == .generating, forKey: "diet_planner_is_generating")
+    }
+    
+    private func restoreConversationState() {
+        if let data = UserDefaults.standard.data(forKey: "diet_planner_chat_messages"),
+           let messages = try? JSONDecoder().decode([ChatMessage].self, from: data) {
+            chatMessages = messages
+            
+            if !messages.isEmpty {
+                currentGenerationId = UserDefaults.standard.string(forKey: "diet_planner_generation_id")
+                preferences = UserDefaults.standard.string(forKey: "diet_planner_preferences") ?? ""
+                readySummary = UserDefaults.standard.string(forKey: "diet_planner_ready_summary")
+                
+                let isGenerating = UserDefaults.standard.bool(forKey: "diet_planner_is_generating")
+                let isReady = UserDefaults.standard.bool(forKey: "diet_planner_is_ready")
+                
+                if isGenerating {
+                    viewState = .generating
+                } else if isReady {
+                    viewState = .readyToGenerate
+                } else {
+                    viewState = .conversing
+                }
+            }
+        }
+    }
+    
+    private func clearConversationState() {
+        UserDefaults.standard.removeObject(forKey: "diet_planner_chat_messages")
+        UserDefaults.standard.removeObject(forKey: "diet_planner_generation_id")
+        UserDefaults.standard.removeObject(forKey: "diet_planner_preferences")
+        UserDefaults.standard.removeObject(forKey: "diet_planner_ready_summary")
+        UserDefaults.standard.removeObject(forKey: "diet_planner_is_ready")
+        UserDefaults.standard.removeObject(forKey: "diet_planner_is_generating")
+        
+        chatMessages = []
+        currentGenerationId = nil
+        readySummary = nil
+    }
+    
+    func checkPendingGenerations() async {
+        guard let userId = userId else { return }
+        
+        do {
+            let generatingList = try await planGenerationService.loadGeneratingPhase(userId: userId)
+            
+            for generation in generatingList where generation.planType == .diet {
+                currentGenerationId = generation.id
+                chatMessages = generation.conversationHistory
+                preferences = generation.collectedContext
+                viewState = .generating
+                
+                await startPlanGeneration()
+                return
+            }
+            
+            let completedList = try await planGenerationService.loadCompletedUnnotified(userId: userId)
+            
+            for generation in completedList where generation.planType == .diet {
+                if let planId = generation.resultPlanId,
+                   let plan = try await dietPlanService.loadPlan(byId: planId) {
+                    currentDietPlan = plan
+                    if !allDietPlans.contains(where: { $0.id == plan.id }) {
+                        allDietPlans.insert(plan, at: 0)
+                    }
+                    viewState = .showingPlan
+                    
+                    try await planGenerationService.markNotificationSent(generation.id)
+                    return
+                }
+            }
+            
+        } catch {
+            log("Error checking pending generations: \(error)")
+        }
+    }
+    
+    func handleUserIdSet() {
+        Task {
+            await loadAllDietPlansForUser()
+            await checkPendingGenerations()
+        }
+    }
+    
     private func saveLastSelectedPlanId(_ planId: String) {
         UserDefaults.standard.set(planId, forKey: "diet_planner_last_plan_id")
     }
@@ -489,6 +938,74 @@ class DietPlannerViewModel: ObservableObject {
         } catch {
             log("Notification permission error: \(error)")
         }
+    }
+    
+    private struct GenerationResult {
+        let success: Bool
+        let missingFields: [String]
+        let isPartialSuccess: Bool
+    }
+    
+    private func processAndValidateResponse(
+        jsonString: String,
+        pendingPlan: DietPlan,
+        userId: String
+    ) async throws -> GenerationResult {
+        generationProgress = 0.80
+        
+        let partialResult = DietPlanPartialSuccessHandler.handlePartialResponse(
+            jsonString,
+            userId: userId,
+            preferences: preferences
+        )
+        
+        if partialResult.success, let handledPlan = partialResult.plan {
+            generationProgress = 0.85
+            
+            pendingPlan.dailyPlans = handledPlan.dailyPlans
+            pendingPlan.summary = handledPlan.summary
+            pendingPlan.totalDays = handledPlan.totalDays
+            pendingPlan.hasFilledData = handledPlan.hasFilledData
+            pendingPlan.filledDataDetails = handledPlan.filledDataDetails
+            pendingPlan.generationStatus = handledPlan.generationStatus
+            pendingPlan.generationProgress = 1.0
+            
+            let formalValidation = DietPlanResponseValidator.validate(pendingPlan)
+            
+            if formalValidation.isValid {
+                appLog("Diet plan validated successfully", level: .info, category: .diet)
+            } else if !formalValidation.errors.filter({ $0.severity == .critical }).isEmpty {
+                let criticalErrors = formalValidation.errors.filter { $0.severity == .critical }
+                let errorMessages = criticalErrors.map { $0.message }
+                appLog("Critical validation errors: \(errorMessages)", level: .error, category: .diet)
+                return GenerationResult(success: false, missingFields: errorMessages, isPartialSuccess: false)
+            } else {
+                let warningMessages = formalValidation.warnings.map { $0.message }
+                appLog("Validation warnings (proceeding): \(warningMessages)", level: .warning, category: .diet)
+            }
+            
+            generationProgress = 0.90
+            try await dietPlanService.updatePlan(pendingPlan)
+            
+            await recordPlanGeneration(
+                userId: userId,
+                planId: pendingPlan.id,
+                preferences: preferences,
+                totalItems: pendingPlan.dailyPlans.flatMap { $0.meals }.count
+            )
+            
+            generationProgress = 0.95
+            
+            let isPartial = !partialResult.filledFields.isEmpty
+            if isPartial {
+                appLog("Plan generated with partial success: \(partialResult.filledFields.count) fields filled", level: .info, category: .diet)
+            }
+            
+            return GenerationResult(success: true, missingFields: partialResult.filledFields, isPartialSuccess: isPartial)
+        }
+        
+        appLog("Partial handler rejected response: \(partialResult.message)", level: .error, category: .diet)
+        return GenerationResult(success: false, missingFields: [partialResult.message], isPartialSuccess: false)
     }
     
     private func validateDietPlanResponse(_ response: AIGeneratedDietPlanResponse) -> ValidationResult {
@@ -596,21 +1113,36 @@ class DietPlannerViewModel: ObservableObject {
         log("Partial success with \(missingFields.count) missing fields")
     }
     
+    private func recordPlanGeneration(
+        userId: String,
+        planId: String,
+        preferences: String,
+        totalItems: Int
+    ) async {
+        let entry = PlanHistoryEntry(
+            planId: planId,
+            planType: .diet,
+            preferences: preferences,
+            completionRate: 0,
+            completedItems: 0,
+            totalItems: totalItems
+        )
+        
+        do {
+            try await PlanHistoryService.shared.addEntry(entry, userId: userId)
+            log("Recorded diet plan generation in history")
+        } catch {
+            log("Failed to record plan in history: \(error)")
+        }
+    }
+    
     private func mapError(_ error: Error) -> String {
-        if let apiError = error as? GeminiAIService.APIError {
-            return apiError.errorDescription ?? "An error occurred."
-        }
-        if let genError = error as? DietPlanGenerationError {
-            return genError.errorDescription ?? "Failed to generate meal plan."
-        }
-        return "An unexpected error occurred. Please try again."
+        let appError = ErrorHandler.shared.handle(error, context: "DietPlanGeneration")
+        return appError.userMessage
     }
     
     private func log(_ message: String) {
-        #if DEBUG
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-        print("[\(timestamp)] [DietPlannerVM] \(message)")
-        #endif
+        appLog(message, category: .diet)
     }
 }
 

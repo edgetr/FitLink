@@ -152,6 +152,14 @@ struct Ingredient: Identifiable, Codable, Hashable {
         case amount
         case category
     }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = (try? container.decode(UUID.self, forKey: .id)) ?? UUID()
+        self.name = try container.decode(String.self, forKey: .name)
+        self.amount = try container.decode(String.self, forKey: .amount)
+        self.category = (try? container.decode(IngredientCategory.self, forKey: .category)) ?? .other
+    }
 }
 
 // MARK: - Nutrition Info
@@ -340,6 +348,23 @@ struct Recipe: Identifiable, Codable, Hashable {
         case commonMistakes = "common_mistakes"
         case visualCues = "visual_cues"
     }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = (try? container.decode(UUID.self, forKey: .id)) ?? UUID()
+        self.name = try container.decode(String.self, forKey: .name)
+        self.imageUrl = try? container.decode(String.self, forKey: .imageUrl)
+        self.prepTime = (try? container.decode(Int.self, forKey: .prepTime)) ?? 30
+        self.servings = (try? container.decode(Int.self, forKey: .servings)) ?? 1
+        self.difficulty = (try? container.decode(DifficultyLevel.self, forKey: .difficulty)) ?? .medium
+        self.ingredients = (try? container.decode([Ingredient].self, forKey: .ingredients)) ?? []
+        self.instructions = (try? container.decode([String].self, forKey: .instructions)) ?? []
+        self.explanation = (try? container.decode(String.self, forKey: .explanation)) ?? ""
+        self.tags = (try? container.decode([String].self, forKey: .tags)) ?? []
+        self.cookingTips = (try? container.decode([String].self, forKey: .cookingTips)) ?? []
+        self.commonMistakes = (try? container.decode([String].self, forKey: .commonMistakes)) ?? []
+        self.visualCues = (try? container.decode([String].self, forKey: .visualCues)) ?? []
+    }
 }
 
 // MARK: - Meal
@@ -371,6 +396,15 @@ struct Meal: Identifiable, Codable, Hashable {
         case recipe
         case nutrition
         case isDone = "is_done"
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = (try? container.decode(UUID.self, forKey: .id)) ?? UUID()
+        self.type = try container.decode(MealType.self, forKey: .type)
+        self.recipe = try container.decode(Recipe.self, forKey: .recipe)
+        self.nutrition = (try? container.decode(NutritionInfo.self, forKey: .nutrition)) ?? .empty
+        self.isDone = (try? container.decode(Bool.self, forKey: .isDone)) ?? false
     }
 }
 
@@ -438,6 +472,16 @@ struct DailyPlan: Identifiable, Codable, Hashable {
         case actualDate = "actual_date"
         case totalCalories = "total_calories"
         case meals
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = (try? container.decode(UUID.self, forKey: .id)) ?? UUID()
+        self.day = try container.decode(Int.self, forKey: .day)
+        self.date = (try? container.decode(String.self, forKey: .date)) ?? ""
+        self.actualDate = try? container.decode(Date.self, forKey: .actualDate)
+        self.totalCalories = (try? container.decode(Int.self, forKey: .totalCalories)) ?? 0
+        self.meals = (try? container.decode([Meal].self, forKey: .meals)) ?? []
     }
 }
 
@@ -668,16 +712,13 @@ class DietPlan: ObservableObject, Identifiable, Codable {
             dict["share_id"] = shareId
         }
         
-        // Encode complex nested structures as JSON
-        if let dailyPlansData = try? JSONEncoder().encode(dailyPlans),
-           let dailyPlansJSON = String(data: dailyPlansData, encoding: .utf8) {
-            dict["daily_plans_json"] = dailyPlansJSON
+        var dailyPlansMap: [String: Any] = [:]
+        for dailyPlan in dailyPlans {
+            dailyPlansMap["day_\(dailyPlan.day)"] = dailyPlan.toFirestoreMap()
         }
+        dict["daily_plans"] = dailyPlansMap
         
-        if let summaryData = try? JSONEncoder().encode(summary),
-           let summaryJSON = String(data: summaryData, encoding: .utf8) {
-            dict["summary_json"] = summaryJSON
-        }
+        dict["summary"] = summary.toFirestoreMap()
         
         return dict
     }
@@ -693,7 +734,6 @@ class DietPlan: ObservableObject, Identifiable, Codable {
             totalDays: data["total_days"] as? Int ?? 7
         )
         
-        // Decode dates
         if let createdAt = (data["created_at"] as? Timestamp)?.dateValue() {
             plan.createdAt = createdAt
         }
@@ -710,7 +750,6 @@ class DietPlan: ObservableObject, Identifiable, Codable {
             plan.archivedAt = archivedAt
         }
         
-        // Decode simple properties
         plan.isArchived = data["is_archived"] as? Bool ?? false
         plan.generationProgress = data["generation_progress"] as? Double ?? 0.0
         plan.generationRequestId = data["generation_request_id"] as? String
@@ -720,20 +759,24 @@ class DietPlan: ObservableObject, Identifiable, Codable {
         plan.sharedWith = data["shared_with"] as? [String] ?? []
         plan.shareId = data["share_id"] as? String
         
-        // Decode generation status
         if let statusRaw = data["generation_status"] as? String,
            let status = GenerationStatus(rawValue: statusRaw) {
             plan.generationStatus = status
         }
         
-        // Decode complex nested structures from JSON
-        if let dailyPlansJSON = data["daily_plans_json"] as? String,
+        if let dailyPlansMap = data["daily_plans"] as? [String: [String: Any]] {
+            plan.dailyPlans = dailyPlansMap.values
+                .compactMap { DailyPlan.fromFirestoreMap($0) }
+                .sorted { $0.day < $1.day }
+        } else if let dailyPlansJSON = data["daily_plans_json"] as? String,
            let dailyPlansData = dailyPlansJSON.data(using: .utf8),
            let dailyPlans = try? JSONDecoder().decode([DailyPlan].self, from: dailyPlansData) {
             plan.dailyPlans = dailyPlans
         }
         
-        if let summaryJSON = data["summary_json"] as? String,
+        if let summaryMap = data["summary"] as? [String: Any] {
+            plan.summary = NutritionSummary.fromFirestoreMap(summaryMap)
+        } else if let summaryJSON = data["summary_json"] as? String,
            let summaryData = summaryJSON.data(using: .utf8),
            let summary = try? JSONDecoder().decode(NutritionSummary.self, from: summaryData) {
             plan.summary = summary
@@ -794,6 +837,205 @@ class DietPlan: ObservableObject, Identifiable, Codable {
                 dietaryRestrictions: []
             ),
             generationStatus: .completed
+        )
+    }
+}
+
+// MARK: - Firestore Persistence Extensions
+
+extension Ingredient {
+    func toFirestoreMap() -> [String: Any] {
+        return [
+            "id": id.uuidString,
+            "name": name,
+            "amount": amount,
+            "category": category.rawValue
+        ]
+    }
+    
+    static func fromFirestoreMap(_ data: [String: Any]) -> Ingredient? {
+        guard let name = data["name"] as? String,
+              let amount = data["amount"] as? String else { return nil }
+        
+        let id = (data["id"] as? String).flatMap { UUID(uuidString: $0) } ?? UUID()
+        let category = (data["category"] as? String).flatMap { IngredientCategory(rawValue: $0) } ?? .other
+        
+        return Ingredient(id: id, name: name, amount: amount, category: category)
+    }
+}
+
+extension NutritionInfo {
+    func toFirestoreMap() -> [String: Any] {
+        return [
+            "calories": calories,
+            "protein": protein,
+            "carbs": carbs,
+            "fat": fat,
+            "fiber": fiber,
+            "sugar": sugar,
+            "sodium": sodium
+        ]
+    }
+    
+    static func fromFirestoreMap(_ data: [String: Any]) -> NutritionInfo {
+        return NutritionInfo(
+            calories: data["calories"] as? Int ?? 0,
+            protein: data["protein"] as? Int ?? 0,
+            carbs: data["carbs"] as? Int ?? 0,
+            fat: data["fat"] as? Int ?? 0,
+            fiber: data["fiber"] as? Int ?? 0,
+            sugar: data["sugar"] as? Int ?? 0,
+            sodium: data["sodium"] as? Int ?? 0
+        )
+    }
+}
+
+extension NutritionSummary {
+    func toFirestoreMap() -> [String: Any] {
+        return [
+            "avg_calories_per_day": avgCaloriesPerDay,
+            "avg_protein_per_day": avgProteinPerDay,
+            "avg_carbs_per_day": avgCarbsPerDay,
+            "avg_fat_per_day": avgFatPerDay,
+            "dietary_restrictions": dietaryRestrictions
+        ]
+    }
+    
+    static func fromFirestoreMap(_ data: [String: Any]) -> NutritionSummary {
+        return NutritionSummary(
+            avgCaloriesPerDay: data["avg_calories_per_day"] as? Int ?? 0,
+            avgProteinPerDay: data["avg_protein_per_day"] as? Int ?? 0,
+            avgCarbsPerDay: data["avg_carbs_per_day"] as? Int ?? 0,
+            avgFatPerDay: data["avg_fat_per_day"] as? Int ?? 0,
+            dietaryRestrictions: data["dietary_restrictions"] as? [String] ?? []
+        )
+    }
+}
+
+extension Recipe {
+    func toFirestoreMap() -> [String: Any] {
+        var map: [String: Any] = [
+            "id": id.uuidString,
+            "name": name,
+            "prep_time": prepTime,
+            "servings": servings,
+            "difficulty": difficulty.rawValue,
+            "ingredients": ingredients.map { $0.toFirestoreMap() },
+            "instructions": instructions,
+            "explanation": explanation,
+            "tags": tags,
+            "cooking_tips": cookingTips,
+            "common_mistakes": commonMistakes,
+            "visual_cues": visualCues
+        ]
+        if let imageUrl = imageUrl {
+            map["image_url"] = imageUrl
+        }
+        return map
+    }
+    
+    static func fromFirestoreMap(_ data: [String: Any]) -> Recipe? {
+        guard let name = data["name"] as? String else { return nil }
+        
+        let id = (data["id"] as? String).flatMap { UUID(uuidString: $0) } ?? UUID()
+        let ingredientsData = data["ingredients"] as? [[String: Any]] ?? []
+        let ingredients = ingredientsData.compactMap { Ingredient.fromFirestoreMap($0) }
+        let difficulty = (data["difficulty"] as? String).flatMap { DifficultyLevel(rawValue: $0) } ?? .medium
+        
+        return Recipe(
+            id: id,
+            name: name,
+            imageUrl: data["image_url"] as? String,
+            prepTime: data["prep_time"] as? Int ?? 30,
+            servings: data["servings"] as? Int ?? 1,
+            difficulty: difficulty,
+            ingredients: ingredients,
+            instructions: data["instructions"] as? [String] ?? [],
+            explanation: data["explanation"] as? String ?? "",
+            tags: data["tags"] as? [String] ?? [],
+            cookingTips: data["cooking_tips"] as? [String] ?? [],
+            commonMistakes: data["common_mistakes"] as? [String] ?? [],
+            visualCues: data["visual_cues"] as? [String] ?? []
+        )
+    }
+}
+
+extension Meal {
+    func toFirestoreMap() -> [String: Any] {
+        return [
+            "id": id.uuidString,
+            "type": type.rawValue,
+            "recipe": recipe.toFirestoreMap(),
+            "nutrition": nutrition.toFirestoreMap(),
+            "is_done": isDone
+        ]
+    }
+    
+    static func fromFirestoreMap(_ data: [String: Any]) -> Meal? {
+        guard let typeRaw = data["type"] as? String,
+              let type = MealType(rawValue: typeRaw),
+              let recipeData = data["recipe"] as? [String: Any],
+              let recipe = Recipe.fromFirestoreMap(recipeData) else { return nil }
+        
+        let id = (data["id"] as? String).flatMap { UUID(uuidString: $0) } ?? UUID()
+        let nutritionData = data["nutrition"] as? [String: Any] ?? [:]
+        let nutrition = NutritionInfo.fromFirestoreMap(nutritionData)
+        let isDone = data["is_done"] as? Bool ?? false
+        
+        return Meal(id: id, type: type, recipe: recipe, nutrition: nutrition, isDone: isDone)
+    }
+}
+
+extension DailyPlan {
+    func toFirestoreMap() -> [String: Any] {
+        var map: [String: Any] = [
+            "id": id.uuidString,
+            "day": day,
+            "date": date,
+            "total_calories": totalCalories
+        ]
+        
+        // Store meals as a map keyed by meal ID for atomic updates
+        var mealsMap: [String: Any] = [:]
+        for meal in meals {
+            mealsMap[meal.id.uuidString] = meal.toFirestoreMap()
+        }
+        map["meals"] = mealsMap
+        
+        if let actualDate = actualDate {
+            map["actual_date"] = Timestamp(date: actualDate)
+        }
+        
+        return map
+    }
+    
+    static func fromFirestoreMap(_ data: [String: Any]) -> DailyPlan? {
+        guard let day = data["day"] as? Int else { return nil }
+        
+        let id = (data["id"] as? String).flatMap { UUID(uuidString: $0) } ?? UUID()
+        
+        // Support both map format (new) and array format (legacy)
+        var meals: [Meal] = []
+        if let mealsMap = data["meals"] as? [String: [String: Any]] {
+            // New map format - meals keyed by ID
+            meals = mealsMap.values.compactMap { Meal.fromFirestoreMap($0) }
+        } else if let mealsArray = data["meals"] as? [[String: Any]] {
+            // Legacy array format
+            meals = mealsArray.compactMap { Meal.fromFirestoreMap($0) }
+        }
+        
+        var actualDate: Date?
+        if let timestamp = data["actual_date"] as? Timestamp {
+            actualDate = timestamp.dateValue()
+        }
+        
+        return DailyPlan(
+            id: id,
+            day: day,
+            date: data["date"] as? String ?? "",
+            actualDate: actualDate,
+            totalCalories: data["total_calories"] as? Int ?? 0,
+            meals: meals.sorted { $0.type.sortOrder < $1.type.sortOrder }
         )
     }
 }

@@ -93,6 +93,20 @@ enum UserFriendlyErrorMessages {
         static let `default` = "A storage error occurred. Please try again."
     }
     
+    // MARK: - Social/Friends Errors
+    
+    enum Social {
+        static let requestAlreadyExists = "You already have a pending friend request with this user."
+        static let alreadyFriends = "You're already friends with this user."
+        static let requestNotFound = "This friend request is no longer available."
+        static let requestNotPending = "This friend request has already been handled."
+        static let userNotFound = "This user could not be found."
+        static let selfRequest = "You can't send a friend request to yourself."
+        static let loadFriendsFailed = "Unable to load friends. Please try again."
+        static let searchFailed = "Unable to search for users. Please try again."
+        static let `default` = "A social feature error occurred. Please try again."
+    }
+    
     // MARK: - Generic Errors
     
     enum Generic {

@@ -40,23 +40,25 @@ struct HourlyDataPoint: Identifiable {
     let hour: Int
     let value: Double
     let isCurrentHour: Bool
+    let referenceDate: Date
     
-    init(hour: Int, value: Double, isCurrentHour: Bool = false) {
+    init(hour: Int, value: Double, isCurrentHour: Bool = false, referenceDate: Date = Date()) {
         self.hour = hour
         self.value = value
         self.isCurrentHour = isCurrentHour
+        self.referenceDate = referenceDate
     }
     
     var hourLabel: String {
         let formatter = DateFormatter()
         let calendar = Calendar.current
         
-        if isCurrentHour {
+        if isCurrentHour && calendar.isDateInToday(referenceDate) {
             formatter.dateFormat = "h:mma"
             return formatter.string(from: Date())
         } else {
             formatter.dateFormat = "ha"
-            let date = calendar.date(bySettingHour: hour, minute: 0, second: 0, of: Date()) ?? Date()
+            let date = calendar.date(bySettingHour: hour, minute: 0, second: 0, of: referenceDate) ?? referenceDate
             return formatter.string(from: date)
         }
     }
@@ -67,18 +69,56 @@ struct SleepDataPoint: Identifiable {
     let hour: Int
     let minute: Int
     let stage: SleepStage
+    let referenceDate: Date
+    
+    init(hour: Int, minute: Int, stage: SleepStage, referenceDate: Date = Date()) {
+        self.hour = hour
+        self.minute = minute
+        self.stage = stage
+        self.referenceDate = referenceDate
+    }
     
     var timeLabel: String {
         let formatter = DateFormatter()
         formatter.dateFormat = "h:mma"
         let calendar = Calendar.current
-        let date = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: Date()) ?? Date()
+        let date = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: referenceDate) ?? referenceDate
         return formatter.string(from: date)
     }
     
     var timeValue: Double {
         Double(hour) + Double(minute) / 60.0
     }
+}
+
+// MARK: - Daily Health Snapshot
+
+struct DailyHealthSnapshot {
+    let date: Date
+    let steps: Int
+    let calories: Int
+    let exerciseMinutes: Int
+    let heartRate: Int
+    let sleepHours: Double
+    let hourlySteps: [HourlyDataPoint]
+    let hourlyCalories: [HourlyDataPoint]
+    let hourlyHeartRate: [HourlyDataPoint]
+    let hourlyExerciseMinutes: [HourlyDataPoint]
+    let sleepStages: [SleepDataPoint]
+    
+    static let empty = DailyHealthSnapshot(
+        date: Date(),
+        steps: 0,
+        calories: 0,
+        exerciseMinutes: 0,
+        heartRate: 0,
+        sleepHours: 0,
+        hourlySteps: [],
+        hourlyCalories: [],
+        hourlyHeartRate: [],
+        hourlyExerciseMinutes: [],
+        sleepStages: []
+    )
 }
 
 class ActivitySummaryViewModel: ObservableObject {
@@ -90,6 +130,7 @@ class ActivitySummaryViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var authorizationStatus: HealthKitAuthorizationStatus = .notDetermined
     @Published var errorMessage: String?
+    @Published var currentDisplayDate: Date = Date()
     
     @Published var hourlyCalories: [HourlyDataPoint] = []
     @Published var hourlySteps: [HourlyDataPoint] = []
@@ -99,6 +140,7 @@ class ActivitySummaryViewModel: ObservableObject {
     
     private var healthStore: HKHealthStore?
     private var cancellables = Set<AnyCancellable>()
+    private var snapshotCache: [Date: DailyHealthSnapshot] = [:]
     
     var formattedSteps: String {
         formatNumber(steps)
@@ -153,13 +195,30 @@ class ActivitySummaryViewModel: ObservableObject {
             return
         }
         
-        let typesToRead: Set<HKObjectType> = [
-            HKObjectType.quantityType(forIdentifier: .stepCount)!,
-            HKObjectType.quantityType(forIdentifier: .activeEnergyBurned)!,
-            HKObjectType.quantityType(forIdentifier: .appleExerciseTime)!,
-            HKObjectType.quantityType(forIdentifier: .heartRate)!,
-            HKObjectType.categoryType(forIdentifier: .sleepAnalysis)!
+        var typesToRead: Set<HKObjectType> = []
+        
+        let quantityIdentifiers: [HKQuantityTypeIdentifier] = [
+            .stepCount,
+            .activeEnergyBurned,
+            .appleExerciseTime,
+            .heartRate
         ]
+        
+        for identifier in quantityIdentifiers {
+            if let quantityType = HKObjectType.quantityType(forIdentifier: identifier) {
+                typesToRead.insert(quantityType)
+            }
+        }
+        
+        if let sleepType = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) {
+            typesToRead.insert(sleepType)
+        }
+        
+        guard !typesToRead.isEmpty else {
+            authorizationStatus = .unavailable
+            errorMessage = "HealthKit types not available on this device"
+            return
+        }
         
         healthStore.requestAuthorization(toShare: nil, read: typesToRead) { [weak self] success, error in
             DispatchQueue.main.async {
@@ -185,8 +244,8 @@ class ActivitySummaryViewModel: ObservableObject {
         
         switch status {
         case .notDetermined:
+            // Do NOT request authorization during init - wait for explicit user action
             authorizationStatus = .notDetermined
-            requestAuthorization()
         case .sharingAuthorized:
             authorizationStatus = .authorized
             fetchTodayActivityData()
@@ -194,7 +253,6 @@ class ActivitySummaryViewModel: ObservableObject {
             authorizationStatus = .denied
         @unknown default:
             authorizationStatus = .notDetermined
-            requestAuthorization()
         }
     }
     
@@ -240,6 +298,82 @@ class ActivitySummaryViewModel: ObservableObject {
         group.notify(queue: .main) { [weak self] in
             self?.isLoading = false
         }
+    }
+    
+    @MainActor
+    func fetchActivityData(for date: Date) async {
+        let calendar = Calendar.current
+        let cacheKey = calendar.startOfDay(for: date)
+        
+        if let cached = snapshotCache[cacheKey] {
+            applySnapshot(cached)
+            return
+        }
+        
+        guard let healthStore = healthStore else {
+            if !HKHealthStore.isHealthDataAvailable() {
+                loadMockData(for: date)
+            }
+            return
+        }
+        
+        isLoading = true
+        currentDisplayDate = date
+        
+        async let stepsValue = fetchStepsAsync(healthStore: healthStore, for: date)
+        async let caloriesValue = fetchActiveEnergyAsync(healthStore: healthStore, for: date)
+        async let exerciseValue = fetchExerciseMinutesAsync(healthStore: healthStore, for: date)
+        async let heartRateValue = fetchHeartRateAsync(healthStore: healthStore, for: date)
+        async let hourlyStepsData = fetchHourlyDataAsync(for: .stepCount, unit: .count(), healthStore: healthStore, date: date)
+        async let hourlyCaloriesData = fetchHourlyDataAsync(for: .activeEnergyBurned, unit: .kilocalorie(), healthStore: healthStore, date: date)
+        async let hourlyExerciseData = fetchHourlyDataAsync(for: .appleExerciseTime, unit: .minute(), healthStore: healthStore, date: date)
+        async let hourlyHeartRateData = fetchHourlyHeartRateAsync(healthStore: healthStore, for: date)
+        async let sleepData = fetchSleepAnalysisAsync(healthStore: healthStore, for: date)
+        
+        let (steps, calories, exercise, heart, hSteps, hCalories, hExercise, hHeart, sleep) = await (
+            stepsValue,
+            caloriesValue,
+            exerciseValue,
+            heartRateValue,
+            hourlyStepsData,
+            hourlyCaloriesData,
+            hourlyExerciseData,
+            hourlyHeartRateData,
+            sleepData
+        )
+        
+        let snapshot = DailyHealthSnapshot(
+            date: cacheKey,
+            steps: steps,
+            calories: calories,
+            exerciseMinutes: exercise,
+            heartRate: heart,
+            sleepHours: sleep.totalHours,
+            hourlySteps: hSteps,
+            hourlyCalories: hCalories,
+            hourlyHeartRate: hHeart,
+            hourlyExerciseMinutes: hExercise,
+            sleepStages: sleep.stages
+        )
+        
+        snapshotCache[cacheKey] = snapshot
+        applySnapshot(snapshot)
+        isLoading = false
+    }
+    
+    @MainActor
+    private func applySnapshot(_ snapshot: DailyHealthSnapshot) {
+        steps = snapshot.steps
+        calories = snapshot.calories
+        exerciseMinutes = snapshot.exerciseMinutes
+        heartRate = snapshot.heartRate
+        sleepHours = snapshot.sleepHours
+        hourlySteps = snapshot.hourlySteps
+        hourlyCalories = snapshot.hourlyCalories
+        hourlyHeartRate = snapshot.hourlyHeartRate
+        hourlyExerciseMinutes = snapshot.hourlyExerciseMinutes
+        sleepStages = snapshot.sleepStages
+        currentDisplayDate = snapshot.date
     }
     
     private func fetchSteps(healthStore: HKHealthStore, completion: @escaping (Int) -> Void) {
@@ -323,16 +457,21 @@ class ActivitySummaryViewModel: ObservableObject {
         healthStore.execute(query)
     }
     
-    private func createTodayPredicate() -> NSPredicate {
+    private func createPredicate(for date: Date) -> NSPredicate {
         let calendar = Calendar.current
-        let now = Date()
-        let startOfDay = calendar.startOfDay(for: now)
+        let startOfDay = calendar.startOfDay(for: date)
+        let isToday = calendar.isDateInToday(date)
+        let endDate = isToday ? Date() : calendar.date(byAdding: .day, value: 1, to: startOfDay) ?? date
         
         return HKQuery.predicateForSamples(
             withStart: startOfDay,
-            end: now,
+            end: endDate,
             options: .strictStartDate
         )
+    }
+    
+    private func createTodayPredicate() -> NSPredicate {
+        createPredicate(for: Date())
     }
     
     // MARK: - Hourly Data Fetching
@@ -565,30 +704,271 @@ class ActivitySummaryViewModel: ObservableObject {
         healthStore.execute(query)
     }
     
-    private func loadMockData() {
-        steps = 4523
-        calories = 287
-        exerciseMinutes = 32
-        heartRate = 72
-        sleepHours = 7.5
-        
-        let currentHour = Calendar.current.component(.hour, from: Date())
-        
-        hourlyCalories = generateMockHourlyData(baseValue: 20, variance: 15, currentHour: currentHour)
-        hourlySteps = generateMockHourlyData(baseValue: 300, variance: 200, currentHour: currentHour)
-        hourlyHeartRate = generateMockHourlyData(baseValue: 70, variance: 15, currentHour: currentHour)
-        hourlyExerciseMinutes = generateMockHourlyData(baseValue: 2, variance: 3, currentHour: currentHour)
-        sleepStages = generateMockSleepStages()
-    }
-    
-    private func generateMockHourlyData(baseValue: Double, variance: Double, currentHour: Int) -> [HourlyDataPoint] {
-        return (0...23).map { hour in
-            let randomValue = hour <= currentHour ? max(0, baseValue + Double.random(in: -variance...variance)) : 0
-            return HourlyDataPoint(hour: hour, value: randomValue, isCurrentHour: hour == currentHour)
+    private func fetchStepsAsync(healthStore: HKHealthStore, for date: Date) async -> Int {
+        await withCheckedContinuation { continuation in
+            guard let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount) else {
+                continuation.resume(returning: 0)
+                return
+            }
+            
+            let predicate = createPredicate(for: date)
+            
+            let query = HKStatisticsQuery(
+                quantityType: stepType,
+                quantitySamplePredicate: predicate,
+                options: .cumulativeSum
+            ) { _, result, _ in
+                guard let result = result, let sum = result.sumQuantity() else {
+                    continuation.resume(returning: 0)
+                    return
+                }
+                continuation.resume(returning: Int(sum.doubleValue(for: HKUnit.count())))
+            }
+            
+            healthStore.execute(query)
         }
     }
     
-    private func generateMockSleepStages() -> [SleepDataPoint] {
+    private func fetchActiveEnergyAsync(healthStore: HKHealthStore, for date: Date) async -> Int {
+        await withCheckedContinuation { continuation in
+            guard let energyType = HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned) else {
+                continuation.resume(returning: 0)
+                return
+            }
+            
+            let predicate = createPredicate(for: date)
+            
+            let query = HKStatisticsQuery(
+                quantityType: energyType,
+                quantitySamplePredicate: predicate,
+                options: .cumulativeSum
+            ) { _, result, _ in
+                guard let result = result, let sum = result.sumQuantity() else {
+                    continuation.resume(returning: 0)
+                    return
+                }
+                continuation.resume(returning: Int(sum.doubleValue(for: HKUnit.kilocalorie())))
+            }
+            
+            healthStore.execute(query)
+        }
+    }
+    
+    private func fetchExerciseMinutesAsync(healthStore: HKHealthStore, for date: Date) async -> Int {
+        await withCheckedContinuation { continuation in
+            guard let exerciseType = HKQuantityType.quantityType(forIdentifier: .appleExerciseTime) else {
+                continuation.resume(returning: 0)
+                return
+            }
+            
+            let predicate = createPredicate(for: date)
+            
+            let query = HKStatisticsQuery(
+                quantityType: exerciseType,
+                quantitySamplePredicate: predicate,
+                options: .cumulativeSum
+            ) { _, result, _ in
+                guard let result = result, let sum = result.sumQuantity() else {
+                    continuation.resume(returning: 0)
+                    return
+                }
+                continuation.resume(returning: Int(sum.doubleValue(for: HKUnit.minute())))
+            }
+            
+            healthStore.execute(query)
+        }
+    }
+    
+    private func fetchHeartRateAsync(healthStore: HKHealthStore, for date: Date) async -> Int {
+        await withCheckedContinuation { continuation in
+            guard let heartRateType = HKQuantityType.quantityType(forIdentifier: .heartRate) else {
+                continuation.resume(returning: 0)
+                return
+            }
+            
+            let predicate = createPredicate(for: date)
+            
+            let query = HKStatisticsQuery(
+                quantityType: heartRateType,
+                quantitySamplePredicate: predicate,
+                options: .discreteAverage
+            ) { _, result, _ in
+                guard let result = result, let avg = result.averageQuantity() else {
+                    continuation.resume(returning: 0)
+                    return
+                }
+                continuation.resume(returning: Int(avg.doubleValue(for: HKUnit.count().unitDivided(by: .minute()))))
+            }
+            
+            healthStore.execute(query)
+        }
+    }
+    
+    private func fetchHourlyDataAsync(
+        for identifier: HKQuantityTypeIdentifier,
+        unit: HKUnit,
+        healthStore: HKHealthStore,
+        date: Date
+    ) async -> [HourlyDataPoint] {
+        await withCheckedContinuation { continuation in
+            guard let quantityType = HKQuantityType.quantityType(forIdentifier: identifier) else {
+                continuation.resume(returning: [])
+                return
+            }
+            
+            let calendar = Calendar.current
+            let startOfDay = calendar.startOfDay(for: date)
+            let isToday = calendar.isDateInToday(date)
+            let currentHour = isToday ? calendar.component(.hour, from: Date()) : -1
+            
+            var interval = DateComponents()
+            interval.hour = 1
+            
+            let query = HKStatisticsCollectionQuery(
+                quantityType: quantityType,
+                quantitySamplePredicate: nil,
+                options: identifier == .heartRate ? .discreteAverage : .cumulativeSum,
+                anchorDate: startOfDay,
+                intervalComponents: interval
+            )
+            
+            query.initialResultsHandler = { _, results, _ in
+                var hourlyData: [HourlyDataPoint] = []
+                
+                guard let results = results else {
+                    let emptyData = (0...23).map { HourlyDataPoint(hour: $0, value: 0, isCurrentHour: $0 == currentHour, referenceDate: date) }
+                    continuation.resume(returning: emptyData)
+                    return
+                }
+                
+                let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) ?? date
+                
+                results.enumerateStatistics(from: startOfDay, to: endOfDay) { statistics, _ in
+                    let hour = calendar.component(.hour, from: statistics.startDate)
+                    let value: Double
+                    if identifier == .heartRate {
+                        value = statistics.averageQuantity()?.doubleValue(for: unit) ?? 0
+                    } else {
+                        value = statistics.sumQuantity()?.doubleValue(for: unit) ?? 0
+                    }
+                    hourlyData.append(HourlyDataPoint(hour: hour, value: value, isCurrentHour: hour == currentHour, referenceDate: date))
+                }
+                
+                let existingHours = Set(hourlyData.map { $0.hour })
+                for hour in 0...23 where !existingHours.contains(hour) {
+                    hourlyData.append(HourlyDataPoint(hour: hour, value: 0, isCurrentHour: hour == currentHour, referenceDate: date))
+                }
+                
+                hourlyData.sort { $0.hour < $1.hour }
+                continuation.resume(returning: hourlyData)
+            }
+            
+            healthStore.execute(query)
+        }
+    }
+    
+    private func fetchHourlyHeartRateAsync(healthStore: HKHealthStore, for date: Date) async -> [HourlyDataPoint] {
+        await fetchHourlyDataAsync(for: .heartRate, unit: HKUnit.count().unitDivided(by: .minute()), healthStore: healthStore, date: date)
+    }
+    
+    private func fetchSleepAnalysisAsync(healthStore: HKHealthStore, for date: Date) async -> (stages: [SleepDataPoint], totalHours: Double) {
+        await withCheckedContinuation { continuation in
+            guard let sleepType = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis) else {
+                continuation.resume(returning: ([], 0))
+                return
+            }
+            
+            let calendar = Calendar.current
+            let startOfDay = calendar.startOfDay(for: date)
+            let previousDay = calendar.date(byAdding: .day, value: -1, to: startOfDay) ?? startOfDay
+            let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) ?? date
+            
+            let predicate = HKQuery.predicateForSamples(
+                withStart: previousDay,
+                end: endOfDay,
+                options: .strictStartDate
+            )
+            
+            let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
+            
+            let query = HKSampleQuery(
+                sampleType: sleepType,
+                predicate: predicate,
+                limit: HKObjectQueryNoLimit,
+                sortDescriptors: [sortDescriptor]
+            ) { _, samples, _ in
+                guard let samples = samples as? [HKCategorySample], !samples.isEmpty else {
+                    continuation.resume(returning: ([], 0))
+                    return
+                }
+                
+                var sleepDataPoints: [SleepDataPoint] = []
+                var totalSleepSeconds: TimeInterval = 0
+                
+                for sample in samples {
+                    let stage: SleepStage
+                    switch sample.value {
+                    case HKCategoryValueSleepAnalysis.awake.rawValue:
+                        stage = .awake
+                    case HKCategoryValueSleepAnalysis.asleepREM.rawValue:
+                        stage = .rem
+                    case HKCategoryValueSleepAnalysis.asleepCore.rawValue:
+                        stage = .core
+                    case HKCategoryValueSleepAnalysis.asleepDeep.rawValue:
+                        stage = .deep
+                    case HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue:
+                        stage = .core
+                    default:
+                        continue
+                    }
+                    
+                    if stage != .awake {
+                        totalSleepSeconds += sample.endDate.timeIntervalSince(sample.startDate)
+                    }
+                    
+                    let hour = calendar.component(.hour, from: sample.startDate)
+                    let minute = calendar.component(.minute, from: sample.startDate)
+                    sleepDataPoints.append(SleepDataPoint(hour: hour, minute: minute, stage: stage, referenceDate: date))
+                }
+                
+                continuation.resume(returning: (sleepDataPoints, totalSleepSeconds / 3600.0))
+            }
+            
+            healthStore.execute(query)
+        }
+    }
+    
+    private func loadMockData() {
+        loadMockData(for: Date())
+    }
+    
+    private func loadMockData(for date: Date) {
+        let calendar = Calendar.current
+        let isToday = calendar.isDateInToday(date)
+        let currentHour = isToday ? calendar.component(.hour, from: Date()) : 23
+        
+        steps = Int.random(in: 3000...8000)
+        calories = Int.random(in: 200...500)
+        exerciseMinutes = Int.random(in: 15...60)
+        heartRate = Int.random(in: 65...85)
+        sleepHours = Double.random(in: 5.5...8.5)
+        
+        hourlyCalories = generateMockHourlyData(baseValue: 20, variance: 15, currentHour: currentHour, referenceDate: date)
+        hourlySteps = generateMockHourlyData(baseValue: 300, variance: 200, currentHour: currentHour, referenceDate: date)
+        hourlyHeartRate = generateMockHourlyData(baseValue: 70, variance: 15, currentHour: currentHour, referenceDate: date)
+        hourlyExerciseMinutes = generateMockHourlyData(baseValue: 2, variance: 3, currentHour: currentHour, referenceDate: date)
+        sleepStages = generateMockSleepStages(for: date)
+        currentDisplayDate = date
+    }
+    
+    private func generateMockHourlyData(baseValue: Double, variance: Double, currentHour: Int, referenceDate: Date = Date()) -> [HourlyDataPoint] {
+        return (0...23).map { hour in
+            let randomValue = hour <= currentHour ? max(0, baseValue + Double.random(in: -variance...variance)) : 0
+            return HourlyDataPoint(hour: hour, value: randomValue, isCurrentHour: hour == currentHour, referenceDate: referenceDate)
+        }
+    }
+    
+    private func generateMockSleepStages(for date: Date = Date()) -> [SleepDataPoint] {
         var stages: [SleepDataPoint] = []
         
         let sleepSchedule: [(startHour: Int, startMin: Int, stage: SleepStage)] = [
@@ -611,7 +991,7 @@ class ActivitySummaryViewModel: ObservableObject {
         ]
         
         for entry in sleepSchedule {
-            stages.append(SleepDataPoint(hour: entry.startHour, minute: entry.startMin, stage: entry.stage))
+            stages.append(SleepDataPoint(hour: entry.startHour, minute: entry.startMin, stage: entry.stage, referenceDate: date))
         }
         
         return stages

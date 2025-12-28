@@ -4,9 +4,12 @@ struct DashboardView: View {
     @EnvironmentObject var sessionManager: SessionManager
     @StateObject private var habitTrackerViewModel = HabitTrackerViewModel()
     @StateObject private var activitySummaryViewModel = ActivitySummaryViewModel()
+    @StateObject private var router = AppRouter.shared
+    @StateObject private var tourCoordinator = OnboardingTourCoordinator.shared
     
     @Namespace private var dashboardNamespace
     @State private var showOnboarding = false
+    @State private var navigationPath = NavigationPath()
     
     private var greeting: String {
         let hour = Calendar.current.component(.hour, from: Date())
@@ -51,30 +54,57 @@ struct DashboardView: View {
     }
     
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                LazyVStack(spacing: GlassTokens.Layout.cardSpacing) {
-                    heroSection
-                    quickStatsRow
-                    motivationCard
-                    
-                    if hasPendingFriendRequests {
-                        friendChallengeBanner
+        NavigationStack(path: $navigationPath) {
+            ScrollViewReader { scrollProxy in
+                ScrollView {
+                    LazyVStack(spacing: GlassTokens.Layout.cardSpacing) {
+                        heroSection
+                            .id("dashboard.hero")
+                        quickStatsRow
+                            .id("dashboard.quickStats")
+                        motivationCard
+                        
+                        if hasPendingFriendRequests {
+                            friendChallengeBanner
+                        }
+                        
+                        sectionHeader("Your Tools")
+                        
+                        VStack(spacing: 12) {
+                            aiWorkoutsCard
+                                .id("dashboard.aiWorkouts")
+                            aiDietPlannerCard
+                                .id("dashboard.aiDiet")
+                            habitTrackerCard
+                                .id("dashboard.habits")
+                        }
                     }
-                    
-                    sectionHeader("Your Tools")
-                    
-                    VStack(spacing: 12) {
-                        aiWorkoutsCard
-                        aiDietPlannerCard
-                        habitTrackerCard
+                    .padding(.horizontal, GlassTokens.Layout.pageHorizontalPadding)
+                    .padding(.top, 8)
+                    .padding(.bottom, GlassTokens.Layout.pageBottomInset + 20)
+                }
+                .onChange(of: tourCoordinator.scrollToElementID) { _, elementID in
+                    guard let elementID else { return }
+                    withAnimation(.easeInOut(duration: 0.4)) {
+                        scrollProxy.scrollTo(elementID, anchor: .center)
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        tourCoordinator.scrollToElementID = nil
                     }
                 }
-                .padding(.horizontal, GlassTokens.Layout.pageHorizontalPadding)
-                .padding(.top, 8)
-                .padding(.bottom, GlassTokens.Layout.pageBottomInset + 20)
             }
-            .background(Color(UIColor.systemGroupedBackground))
+            .background(
+                LinearGradient(
+                    colors: [
+                        Color(UIColor.systemBackground),
+                        Color.purple.opacity(0.15),
+                        Color.blue.opacity(0.10)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+            )
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -90,6 +120,49 @@ struct DashboardView: View {
             .sheet(isPresented: $showOnboarding) {
                 OnboardingView(isPresented: $showOnboarding)
             }
+            .navigationDestination(for: AppRouter.AppRoute.self) { route in
+                switch route {
+                case .dashboard:
+                    EmptyView()
+                case .dietPlanner, .dietPlan:
+                    DietPlannerView()
+                        .onAppear { StreakManager.shared.recordAppUsage() }
+                case .workouts, .workoutPlan:
+                    WorkoutsView()
+                        .onAppear { StreakManager.shared.recordAppUsage() }
+                case .habitTracker:
+                    HabitTrackerView(viewModel: habitTrackerViewModel)
+                        .onAppear { StreakManager.shared.recordAppUsage() }
+                case .focusSession:
+                    FocusView(viewModel: habitTrackerViewModel)
+                        .onAppear { StreakManager.shared.recordAppUsage() }
+                case .currentFocusSession:
+                    FocusView(viewModel: habitTrackerViewModel)
+                        .onAppear { StreakManager.shared.recordAppUsage() }
+                case .recipe:
+                    DietPlannerView()
+                        .onAppear { StreakManager.shared.recordAppUsage() }
+                case .activitySummary:
+                    ActivitySummaryView(viewModel: activitySummaryViewModel)
+                        .onAppear { StreakManager.shared.recordAppUsage() }
+                case .friends:
+                    FriendsView(userId: sessionManager.currentUserID ?? "")
+                        .onAppear { StreakManager.shared.recordAppUsage() }
+                case .profile:
+                    ProfileMenuView()
+                        .onAppear { StreakManager.shared.recordAppUsage() }
+                case .settings:
+                    SettingsView()
+                        .onAppear { StreakManager.shared.recordAppUsage() }
+                }
+            }
+            .onChange(of: router.pendingRoute) { _, newRoute in
+                if let route = newRoute {
+                    navigationPath.append(route)
+                    router.clearPendingRoute()
+                }
+            }
+            .onboardingTourOverlay()
         }
     }
     
@@ -98,61 +171,24 @@ struct DashboardView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 showOnboarding = true
             }
+        } else {
+            tourCoordinator.startFirstRunTourIfNeeded()
         }
     }
     
     private var headerLogo: some View {
         HStack(spacing: 8) {
-            ZStack {
-                Circle()
-                    .fill(.regularMaterial)
-                    .overlay(
-                        Circle()
-                            .fill(
-                                LinearGradient(
-                                    colors: [
-                                        Color.white.opacity(0.4),
-                                        Color.white.opacity(0.1),
-                                        Color.clear
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
+            Image(systemName: "heart.fill")
+                .font(.system(size: 16))
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [.pink, .red],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
                     )
-                    .overlay(
-                        Circle()
-                            .strokeBorder(
-                                LinearGradient(
-                                    colors: [
-                                        Color.white.opacity(0.5),
-                                        Color.white.opacity(0.2),
-                                        Color.primary.opacity(0.1)
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                lineWidth: 0.5
-                            )
-                    )
-                    .shadow(color: .black.opacity(0.06), radius: 2, x: 0, y: 1)
-                    .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 4)
-                    .frame(width: 36, height: 36)
-                
-                Image(systemName: "heart.fill")
-                    .font(.system(size: 16))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [.pink, .red],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-            }
-            
-            Text("FitLink")
-                .font(.title2)
-                .fontWeight(.bold)
+                )
+                .frame(width: 36, height: 36)
+                .glassEffect(.regular, in: Circle())
         }
     }
     
@@ -161,6 +197,7 @@ struct DashboardView: View {
             ProfileIconView()
         }
         .buttonStyle(.plain)
+        .onboardingTarget("dashboard.profile")
     }
     
     private var heroSection: some View {
@@ -183,6 +220,7 @@ struct DashboardView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 12)
+        .onboardingTarget("dashboard.hero")
     }
     
     private var quickStatsRow: some View {
@@ -248,6 +286,7 @@ struct DashboardView: View {
                 .buttonStyle(.plain)
             }
         }
+        .onboardingTarget("dashboard.quickStats")
     }
     
     private var streakCount: Int {
@@ -273,7 +312,7 @@ struct DashboardView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
-        .padding(16)
+        .padding(GlassTokens.Padding.standard)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             LinearGradient(
@@ -333,8 +372,9 @@ struct DashboardView: View {
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
-            .padding(16)
-            .glassEffect(.regular.tint(.orange), in: RoundedRectangle(cornerRadius: GlassTokens.Radius.card, style: .continuous))
+            .padding(GlassTokens.Padding.standard)
+            .glassEffect(.regular.interactive().tint(.orange), in: RoundedRectangle(cornerRadius: GlassTokens.Radius.card, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: GlassTokens.Radius.card, style: .continuous))
         }
         .buttonStyle(.plain)
     }
@@ -349,6 +389,7 @@ struct DashboardView: View {
             )
         }
         .buttonStyle(.plain)
+        .onboardingTarget("dashboard.aiWorkouts")
     }
     
     private var aiDietPlannerCard: some View {
@@ -361,6 +402,7 @@ struct DashboardView: View {
             )
         }
         .buttonStyle(.plain)
+        .onboardingTarget("dashboard.aiDiet")
     }
     
     private func formatNumber(_ number: Int) -> String {
@@ -403,10 +445,12 @@ struct DashboardView: View {
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
-            .padding(16)
+            .padding(GlassTokens.Padding.standard)
             .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: GlassTokens.Radius.card, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: GlassTokens.Radius.card, style: .continuous))
         }
         .buttonStyle(.plain)
+        .onboardingTarget("dashboard.habits")
     }
     
     private var habitsSummary: String {
@@ -453,6 +497,7 @@ struct QuickStatCard: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 16)
         .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: GlassTokens.Radius.card, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: GlassTokens.Radius.card, style: .continuous))
     }
 }
 
@@ -495,8 +540,9 @@ struct DashboardNavigationCard: View {
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }
-        .padding(16)
+        .padding(GlassTokens.Padding.standard)
         .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: GlassTokens.Radius.card, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: GlassTokens.Radius.card, style: .continuous))
     }
 }
 

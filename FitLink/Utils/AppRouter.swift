@@ -8,18 +8,45 @@ final class AppRouter: ObservableObject {
     
     static let shared = AppRouter()
     
-    /// Published route for navigation
     @Published var pendingRoute: AppRoute?
-    
-    /// Flag to indicate a route is pending navigation
     @Published var hasNavigationPending = false
     
-    private init() {}
+    /// Route stored when prerequisites (auth/onboarding) are not met
+    @Published private(set) var deferredRoute: AppRoute?
+    
+    private var cancellables = Set<AnyCancellable>()
+    
+    private init() {
+        setupNotificationObservers()
+    }
+    
+    private func setupNotificationObservers() {
+        NotificationCenter.default.publisher(for: .navigateToPlan)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] notification in
+                self?.handlePlanNavigationNotification(notification)
+            }
+            .store(in: &cancellables)
+    }
+    
+    private func handlePlanNavigationNotification(_ notification: Notification) {
+        guard let planTypeRaw = notification.userInfo?["planType"] as? String else { return }
+        
+        if planTypeRaw == "diet" {
+            pendingRoute = .dietPlanner
+        } else if planTypeRaw == "workoutHome" || planTypeRaw == "workoutGym" {
+            pendingRoute = .workouts
+        }
+        
+        if pendingRoute != nil {
+            hasNavigationPending = true
+        }
+    }
     
     // MARK: - Route Definition
     
     /// Represents all possible deep link destinations in the app
-    enum AppRoute: Equatable {
+    enum AppRoute: Equatable, Hashable {
         /// Home dashboard
         case dashboard
         
@@ -28,6 +55,9 @@ final class AppRouter: ObservableObject {
         
         /// Focus session for a specific habit
         case focusSession(habitId: String)
+        
+        /// Resume current active focus session (no habitId required)
+        case currentFocusSession
         
         /// Diet planner main view
         case dietPlanner
@@ -87,10 +117,10 @@ final class AppRouter: ObservableObject {
             return .habitTracker(date: nil)
             
         case "focus":
-            guard let habitId = pathComponents.first ?? queryItems.first(where: { $0.name == "habitId" })?.value else {
-                return nil
+            if let habitId = pathComponents.first ?? queryItems.first(where: { $0.name == "habitId" })?.value {
+                return .focusSession(habitId: habitId)
             }
-            return .focusSession(habitId: habitId)
+            return .currentFocusSession
             
         case "diet", "dietplanner":
             if let planId = pathComponents.first ?? queryItems.first(where: { $0.name == "planId" })?.value {
@@ -137,11 +167,11 @@ final class AppRouter: ObservableObject {
     @discardableResult
     func handleURL(_ url: URL) -> Bool {
         guard let route = parseURL(url) else {
-            print("AppRouter: Unable to parse URL: \(url)")
+            AppLogger.shared.warning("Unable to parse URL", category: .navigation)
             return false
         }
         
-        print("AppRouter: Navigating to route: \(route)")
+        AppLogger.shared.debug("Navigating to route: \(route)", category: .navigation)
         
         DispatchQueue.main.async {
             self.pendingRoute = route
@@ -155,6 +185,48 @@ final class AppRouter: ObservableObject {
     func clearPendingRoute() {
         pendingRoute = nil
         hasNavigationPending = false
+    }
+    
+    // MARK: - Deferred Route Gating
+    
+    func handleURLWithGating(_ url: URL, isAuthenticated: Bool, hasCompletedOnboarding: Bool) -> Bool {
+        guard let route = parseURL(url) else {
+            AppLogger.shared.warning("Unable to parse URL: \(url.absoluteString)", category: .navigation)
+            return false
+        }
+        
+        return applyRouteWithGating(route, isAuthenticated: isAuthenticated, hasCompletedOnboarding: hasCompletedOnboarding)
+    }
+    
+    func applyRouteWithGating(_ route: AppRoute, isAuthenticated: Bool, hasCompletedOnboarding: Bool) -> Bool {
+        if !isAuthenticated || !hasCompletedOnboarding {
+            AppLogger.shared.debug("Deferring route until prerequisites met: \(route)", category: .navigation)
+            deferredRoute = route
+            return true
+        }
+        
+        DispatchQueue.main.async {
+            self.pendingRoute = route
+            self.hasNavigationPending = true
+        }
+        return true
+    }
+    
+    func applyDeferredRouteIfReady(isAuthenticated: Bool, hasCompletedOnboarding: Bool) {
+        guard isAuthenticated, hasCompletedOnboarding else { return }
+        guard let route = deferredRoute else { return }
+        
+        AppLogger.shared.debug("Applying deferred route: \(route)", category: .navigation)
+        deferredRoute = nil
+        
+        DispatchQueue.main.async {
+            self.pendingRoute = route
+            self.hasNavigationPending = true
+        }
+    }
+    
+    func clearDeferredRoute() {
+        deferredRoute = nil
     }
     
     // MARK: - URL Generation
@@ -179,6 +251,9 @@ final class AppRouter: ObservableObject {
         case .focusSession(let habitId):
             components.host = "focus"
             components.path = "/\(habitId)"
+            
+        case .currentFocusSession:
+            components.host = "focus"
             
         case .dietPlanner:
             components.host = "diet"

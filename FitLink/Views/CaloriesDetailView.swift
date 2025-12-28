@@ -1,5 +1,4 @@
 import SwiftUI
-import Charts
 
 struct CaloriesDetailView: View {
     @ObservedObject var viewModel: ActivitySummaryViewModel
@@ -13,112 +12,41 @@ struct CaloriesDetailView: View {
         }
     }
     
+    private var dateDescriptor: String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(selectedDate) {
+            return "today"
+        } else if calendar.isDateInYesterday(selectedDate) {
+            return "yesterday"
+        } else {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "MMM d"
+            return formatter.string(from: selectedDate)
+        }
+    }
+    
     var body: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                LiquidGlassDateStrip(
-                    selectedDate: $selectedDate,
-                    dateRange: dateRange
-                )
-                .padding(.horizontal, -GlassTokens.Layout.pageHorizontalPadding)
-                
-                totalValueCard
-                hourlyChartSection
-                Spacer()
-            }
-            .padding(.horizontal, GlassTokens.Layout.pageHorizontalPadding)
-            .padding(.top, 16)
-        }
-        .background(Color(UIColor.systemGroupedBackground))
-        .navigationTitle("Calories")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-    
-    private var totalValueCard: some View {
-        VStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [.orange, .red],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 80, height: 80)
-                
-                Image(systemName: "flame.fill")
-                    .font(.system(size: 36))
-                    .foregroundStyle(.white)
-            }
+        MetricDetailScreen(
+            title: "Calories",
+            viewModel: viewModel,
+            selectedDate: $selectedDate,
+            dateRange: dateRange
+        ) {
+            MetricValueCard(
+                iconName: "flame.fill",
+                iconGradient: [.orange, .red],
+                value: viewModel.formattedCalories,
+                subtitle: "calories burned \(dateDescriptor)"
+            )
             
-            Text("\(viewModel.formattedCalories)")
-                .font(.system(size: 48, weight: .bold))
-                .monospacedDigit()
-            
-            Text("calories burned today")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            HourlyBarChart(
+                title: "Hourly Breakdown",
+                dataPoints: viewModel.hourlyCalories,
+                gradientColors: [.orange, .red],
+                highlightGradientColors: [.yellow, .orange],
+                valueMultiplier: 3.0
+            )
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 32)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: GlassTokens.Radius.card, style: .continuous))
-    }
-    
-    private var hourlyChartSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Hourly Breakdown")
-                .font(.headline)
-            
-            if viewModel.hourlyCalories.isEmpty {
-                Text("No data available")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 40)
-            } else {
-                ScrollViewReader { proxy in
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(alignment: .bottom, spacing: 8) {
-                            ForEach(viewModel.hourlyCalories) { dataPoint in
-                                VStack(spacing: 4) {
-                                    if dataPoint.value > 0 {
-                                        Text("\(Int(dataPoint.value))")
-                                            .font(.system(size: 8, weight: .medium))
-                                            .foregroundStyle(dataPoint.isCurrentHour ? .primary : .secondary)
-                                    }
-                                    
-                                    RoundedRectangle(cornerRadius: 4)
-                                        .fill(
-                                            dataPoint.isCurrentHour ?
-                                            LinearGradient(colors: [.yellow, .orange], startPoint: .bottom, endPoint: .top) :
-                                            LinearGradient(colors: [.orange, .red], startPoint: .bottom, endPoint: .top)
-                                        )
-                                        .frame(width: 28, height: max(4, CGFloat(dataPoint.value) * 3))
-                                    
-                                    Text(dataPoint.hourLabel)
-                                        .font(.system(size: 9))
-                                        .foregroundStyle(dataPoint.isCurrentHour ? .primary : .secondary)
-                                        .fontWeight(dataPoint.isCurrentHour ? .bold : .regular)
-                                        .fixedSize(horizontal: true, vertical: false)
-                                }
-                                .id(dataPoint.hour)
-                            }
-                        }
-                        .frame(height: 240)
-                        .padding(.horizontal, 8)
-                    }
-                    .onAppear {
-                        let currentHour = Calendar.current.component(.hour, from: Date())
-                        withAnimation {
-                            proxy.scrollTo(max(0, currentHour - 2), anchor: .leading)
-                        }
-                    }
-                }
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: GlassTokens.Radius.card, style: .continuous))
     }
 }
 

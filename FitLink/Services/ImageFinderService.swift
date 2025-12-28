@@ -6,9 +6,7 @@ final class ImageFinderService {
     static let shared = ImageFinderService()
     
     private let session: URLSession
-    private let cache = NSCache<NSString, UIImage>()
-    private let fileManager = FileManager.default
-    private var diskCacheURL: URL?
+    private let cacheManager = CacheManager.shared
     
     private init() {
         let config = URLSessionConfiguration.default
@@ -16,23 +14,6 @@ final class ImageFinderService {
         config.timeoutIntervalForResource = 30
         config.requestCachePolicy = .returnCacheDataElseLoad
         self.session = URLSession(configuration: config)
-        
-        setupDiskCache()
-        configureCacheLimits()
-    }
-    
-    private func setupDiskCache() {
-        if let cacheDir = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first {
-            diskCacheURL = cacheDir.appendingPathComponent("ImageCache", isDirectory: true)
-            if let url = diskCacheURL {
-                try? fileManager.createDirectory(at: url, withIntermediateDirectories: true)
-            }
-        }
-    }
-    
-    private func configureCacheLimits() {
-        cache.countLimit = 100
-        cache.totalCostLimit = 50 * 1024 * 1024
     }
     
     // MARK: - Public API
@@ -40,19 +21,15 @@ final class ImageFinderService {
     func fetchRecipeImage(for recipeName: String, category: String? = nil) async -> UIImage? {
         let cacheKey = generateCacheKey(recipeName: recipeName, category: category)
         
-        if let cached = cache.object(forKey: cacheKey as NSString) {
+        if let cached = cacheManager.getCachedImage(forKey: cacheKey, checkDisk: true) {
             return cached
-        }
-        
-        if let diskImage = loadFromDisk(key: cacheKey) {
-            cache.setObject(diskImage, forKey: cacheKey as NSString)
-            return diskImage
         }
         
         let searchQuery = buildSearchQuery(recipeName: recipeName, category: category)
         
         if let image = await fetchFromUnsplash(query: searchQuery) {
-            cacheImage(image, forKey: cacheKey)
+            cacheManager.cacheImage(image, forKey: cacheKey, persistToDisk: true)
+            cacheManager.recordNetworkFetch()
             return image
         }
         
@@ -60,9 +37,9 @@ final class ImageFinderService {
     }
     
     func fetchImage(from urlString: String) async -> UIImage? {
-        let cacheKey = urlString.hashValue.description
+        let cacheKey = cacheManager.stableKey(for: urlString)
         
-        if let cached = cache.object(forKey: cacheKey as NSString) {
+        if let cached = cacheManager.getCachedImage(forKey: cacheKey, checkDisk: true) {
             return cached
         }
         
@@ -76,10 +53,11 @@ final class ImageFinderService {
                 return nil
             }
             
-            cacheImage(image, forKey: cacheKey)
+            cacheManager.cacheImage(image, forKey: cacheKey, persistToDisk: true)
+            cacheManager.recordNetworkFetch()
             return image
         } catch {
-            print("ImageFinderService: Failed to fetch image: \(error.localizedDescription)")
+            AppLogger.shared.debug("Failed to fetch image: \(error.localizedDescription)", category: .image)
             return nil
         }
     }
@@ -97,15 +75,12 @@ final class ImageFinderService {
     }
     
     func clearCache() {
-        cache.removeAllObjects()
-        if let diskURL = diskCacheURL {
-            try? fileManager.removeItem(at: diskURL)
-            try? fileManager.createDirectory(at: diskURL, withIntermediateDirectories: true)
-        }
+        cacheManager.clearImageCache()
+        cacheManager.clearDiskCache()
     }
     
     func clearMemoryCache() {
-        cache.removeAllObjects()
+        cacheManager.clearImageCache()
     }
     
     // MARK: - Private Implementation
@@ -113,9 +88,9 @@ final class ImageFinderService {
     private func generateCacheKey(recipeName: String, category: String?) -> String {
         let base = recipeName.lowercased().replacingOccurrences(of: " ", with: "_")
         if let cat = category?.lowercased() {
-            return "\(cat)_\(base)"
+            return "recipe_\(cat)_\(base)"
         }
-        return base
+        return "recipe_\(base)"
     }
     
     private func buildSearchQuery(recipeName: String, category: String?) -> String {
@@ -139,30 +114,9 @@ final class ImageFinderService {
             }
             return image
         } catch {
-            print("ImageFinderService: Unsplash fetch failed: \(error.localizedDescription)")
+            AppLogger.shared.debug("Unsplash fetch failed: \(error.localizedDescription)", category: .image)
             return nil
         }
-    }
-    
-    private func cacheImage(_ image: UIImage, forKey key: String) {
-        let cost = Int(image.size.width * image.size.height * 4)
-        cache.setObject(image, forKey: key as NSString, cost: cost)
-        saveToDisk(image: image, key: key)
-    }
-    
-    private func saveToDisk(image: UIImage, key: String) {
-        guard let diskURL = diskCacheURL,
-              let data = image.jpegData(compressionQuality: 0.8) else { return }
-        
-        let fileURL = diskURL.appendingPathComponent("\(key.hashValue).jpg")
-        try? data.write(to: fileURL)
-    }
-    
-    private func loadFromDisk(key: String) -> UIImage? {
-        guard let diskURL = diskCacheURL else { return nil }
-        let fileURL = diskURL.appendingPathComponent("\(key.hashValue).jpg")
-        guard let data = try? Data(contentsOf: fileURL) else { return nil }
-        return UIImage(data: data)
     }
     
     private func placeholderImage(for category: String?) -> UIImage? {
@@ -191,27 +145,13 @@ final class ImageFinderService {
 extension ImageFinderService {
     
     func getCacheSize() -> String {
-        guard let diskURL = diskCacheURL else { return "0 MB" }
-        
-        var totalSize: Int64 = 0
-        if let enumerator = fileManager.enumerator(at: diskURL, includingPropertiesForKeys: [.fileSizeKey]) {
-            for case let fileURL as URL in enumerator {
-                if let size = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize {
-                    totalSize += Int64(size)
-                }
-            }
-        }
-        
+        let sizeInBytes = cacheManager.approximateCacheSize()
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
-        return formatter.string(fromByteCount: totalSize)
+        return formatter.string(fromByteCount: Int64(sizeInBytes))
     }
     
-    func getCachedImageCount() -> Int {
-        guard let diskURL = diskCacheURL,
-              let contents = try? fileManager.contentsOfDirectory(at: diskURL, includingPropertiesForKeys: nil) else {
-            return 0
-        }
-        return contents.filter { $0.pathExtension == "jpg" }.count
+    func getCacheMetrics() -> CacheMetrics {
+        cacheManager.getMetrics()
     }
 }

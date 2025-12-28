@@ -25,7 +25,9 @@ final class StreakManager {
         
         let sortedDates = Set(dates.map { calendar.startOfDay(for: $0) }).sorted(by: >)
         let today = calendar.startOfDay(for: Date())
-        let yesterday = calendar.date(byAdding: .day, value: -1, to: today)!
+        guard let yesterday = calendar.date(byAdding: .day, value: -1, to: today) else {
+            return 0
+        }
         
         guard let mostRecent = sortedDates.first,
               mostRecent == today || mostRecent == yesterday else {
@@ -38,7 +40,10 @@ final class StreakManager {
         for date in sortedDates {
             if date == currentDate {
                 streak += 1
-                currentDate = calendar.date(byAdding: .day, value: -1, to: currentDate)!
+                guard let previousDay = calendar.date(byAdding: .day, value: -1, to: currentDate) else {
+                    break
+                }
+                currentDate = previousDay
             } else if date < currentDate {
                 break
             }
@@ -78,7 +83,9 @@ final class StreakManager {
         
         let sortedDates = Set(completionDates).sorted(by: >)
         let today = normalizeDate(Date())
-        let yesterday = calendar.date(byAdding: .day, value: -1, to: today)!
+        guard let yesterday = calendar.date(byAdding: .day, value: -1, to: today) else {
+            return 0
+        }
         
         // Check if streak is still active (completed today or yesterday)
         guard let mostRecent = sortedDates.first,
@@ -92,7 +99,10 @@ final class StreakManager {
         for date in sortedDates {
             if date == currentDate {
                 streak += 1
-                currentDate = calendar.date(byAdding: .day, value: -1, to: currentDate)!
+                guard let previousDay = calendar.date(byAdding: .day, value: -1, to: currentDate) else {
+                    break
+                }
+                currentDate = previousDay
             } else if date < currentDate {
                 // Gap in streak, stop counting
                 break
@@ -122,7 +132,10 @@ final class StreakManager {
         for date in sortedDates.filter({ $0 <= targetDate }).sorted(by: >) {
             if date == currentDate {
                 streak += 1
-                currentDate = calendar.date(byAdding: .day, value: -1, to: currentDate)!
+                guard let previousDay = calendar.date(byAdding: .day, value: -1, to: currentDate) else {
+                    break
+                }
+                currentDate = previousDay
             } else if date < currentDate {
                 break
             }
@@ -148,7 +161,10 @@ final class StreakManager {
         
         for i in 1..<sortedDates.count {
             let currentDate = sortedDates[i]
-            let expectedNextDay = calendar.date(byAdding: .day, value: 1, to: previousDate)!
+            guard let expectedNextDay = calendar.date(byAdding: .day, value: 1, to: previousDate) else {
+                previousDate = currentDate
+                continue
+            }
             
             if currentDate == expectedNextDay {
                 currentStreak += 1
@@ -191,7 +207,10 @@ final class StreakManager {
             if completedSet.contains(checkDate) {
                 completedCount += 1
             }
-            checkDate = calendar.date(byAdding: .day, value: -1, to: checkDate)!
+            guard let previousDay = calendar.date(byAdding: .day, value: -1, to: checkDate) else {
+                break
+            }
+            checkDate = previousDay
         }
         
         return Double(completedCount) / Double(days)
