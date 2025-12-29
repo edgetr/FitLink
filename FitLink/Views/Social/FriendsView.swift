@@ -162,15 +162,19 @@ struct FriendsView: View {
                 )
             } else {
                 ForEach(viewModel.friends) { friend in
-                    FriendRow(friend: friend)
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button(role: .destructive) {
-                                friendToRemove = friend
-                                showRemoveFriendAlert = true
-                            } label: {
-                                Label("Remove", systemImage: "person.badge.minus")
-                            }
+                    NavigationLink {
+                        FriendChatView(currentUserId: userId, friend: friend)
+                    } label: {
+                        FriendRow(friend: friend, showChatIndicator: true)
+                    }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            friendToRemove = friend
+                            showRemoveFriendAlert = true
+                        } label: {
+                            Label("Remove", systemImage: "person.badge.minus")
                         }
+                    }
                 }
             }
         } header: {
@@ -288,6 +292,7 @@ struct UserSearchResultRow: View {
 
 struct FriendRow: View {
     let friend: User
+    var showChatIndicator: Bool = false
     
     var body: some View {
         HStack(spacing: 12) {
@@ -303,8 +308,15 @@ struct FriendRow: View {
             }
             
             Spacer()
+            
+            if showChatIndicator {
+                Image(systemName: "bubble.left.fill")
+                    .font(.system(size: 16))
+                    .foregroundStyle(.green)
+            }
         }
         .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 }
 

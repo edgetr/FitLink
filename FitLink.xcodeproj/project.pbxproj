@@ -31,12 +31,30 @@
 		D71EA7C32EFB726E005C1738 /* FirebaseRemoteConfig in Frameworks */ = {isa = PBXBuildFile; productRef = D71EA7C22EFB726E005C1738 /* FirebaseRemoteConfig */; };
 		D71EA7C52EFB726E005C1738 /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = D71EA7C42EFB726E005C1738 /* FirebaseStorage */; };
 		D71EA7C72EFB726E005C1738 /* FirebaseStorageCombine-Community in Frameworks */ = {isa = PBXBuildFile; productRef = D71EA7C62EFB726E005C1738 /* FirebaseStorageCombine-Community */; };
+		D73480FD2F03209600D96FEE /* FitLinkWatch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = D73480F32F03209400D96FEE /* FitLinkWatch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		D73487152F03229300D96FEE /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D7FC8DAC2EFD732A00F7D19F /* WidgetKit.framework */; };
+		D73487162F03229300D96FEE /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D7FC8DAE2EFD732A00F7D19F /* SwiftUI.framework */; };
+		D73487232F03229400D96FEE /* FitLinkWatchComplicationsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D73487142F03229300D96FEE /* FitLinkWatchComplicationsExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		D7FC8DAD2EFD732A00F7D19F /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D7FC8DAC2EFD732A00F7D19F /* WidgetKit.framework */; };
 		D7FC8DAF2EFD732A00F7D19F /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D7FC8DAE2EFD732A00F7D19F /* SwiftUI.framework */; };
 		D7FC8DBE2EFD732A00F7D19F /* FitLinkLiveActivityExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D7FC8DAA2EFD732A00F7D19F /* FitLinkLiveActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		D73480FB2F03209600D96FEE /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D71EA77F2EFB7189005C1738 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D73480F22F03209400D96FEE;
+			remoteInfo = "FitLinkWatch Watch App";
+		};
+		D73487212F03229400D96FEE /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D71EA77F2EFB7189005C1738 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D73487132F03229300D96FEE;
+			remoteInfo = FitLinkWatchComplicationsExtension;
+		};
 		D7FC8DBC2EFD732A00F7D19F /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = D71EA77F2EFB7189005C1738 /* Project object */;
@@ -47,6 +65,28 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
+		D73481012F03209600D96FEE /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				D73480FD2F03209600D96FEE /* FitLinkWatch Watch App.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D73487242F03229400D96FEE /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				D73487232F03229400D96FEE /* FitLinkWatchComplicationsExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		D7FC8DBF2EFD732A00F7D19F /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -62,6 +102,10 @@
 
 /* Begin PBXFileReference section */
 		D71EA7872EFB7189005C1738 /* FitLink.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FitLink.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		D73480F32F03209400D96FEE /* FitLinkWatch Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "FitLinkWatch Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		D73487142F03229300D96FEE /* FitLinkWatchComplicationsExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FitLinkWatchComplicationsExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		D73488B22F0329FD00D96FEE /* FitLinkLiveActivityExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FitLinkLiveActivityExtension.entitlements; sourceTree = "<group>"; };
+		D73488B42F032A1100D96FEE /* FitLinkWatchComplicationsExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FitLinkWatchComplicationsExtension.entitlements; sourceTree = "<group>"; };
 		D7FC8DAA2EFD732A00F7D19F /* FitLinkLiveActivityExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FitLinkLiveActivityExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		D7FC8DAC2EFD732A00F7D19F /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		D7FC8DAE2EFD732A00F7D19F /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
@@ -74,6 +118,13 @@
 				Info.plist,
 			);
 			target = D71EA7862EFB7189005C1738 /* FitLink */;
+		};
+		D73487282F03229400D96FEE /* Exceptions for "FitLinkWatchComplications" folder in "FitLinkWatchComplicationsExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = D73487132F03229300D96FEE /* FitLinkWatchComplicationsExtension */;
 		};
 		D7FC8DC32EFD732A00F7D19F /* Exceptions for "FitLinkLiveActivity" folder in "FitLinkLiveActivityExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
@@ -101,12 +152,30 @@
 			path = FitLink;
 			sourceTree = "<group>";
 		};
+		D73480F42F03209400D96FEE /* FitLinkWatch Watch App */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "FitLinkWatch Watch App";
+			sourceTree = "<group>";
+		};
+		D73487172F03229300D96FEE /* FitLinkWatchComplications */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				D73487282F03229400D96FEE /* Exceptions for "FitLinkWatchComplications" folder in "FitLinkWatchComplicationsExtension" target */,
+			);
+			path = FitLinkWatchComplications;
+			sourceTree = "<group>";
+		};
 		D7FC8DB02EFD732A00F7D19F /* FitLinkLiveActivity */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				D7FC8DC32EFD732A00F7D19F /* Exceptions for "FitLinkLiveActivity" folder in "FitLinkLiveActivityExtension" target */,
 			);
 			path = FitLinkLiveActivity;
+			sourceTree = "<group>";
+		};
+		D7SHARED012F03300000AAAA /* Shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Shared;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -143,6 +212,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D73480F02F03209400D96FEE /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D73487112F03229300D96FEE /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D73487162F03229300D96FEE /* SwiftUI.framework in Frameworks */,
+				D73487152F03229300D96FEE /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		D7FC8DA72EFD732A00F7D19F /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -158,8 +243,13 @@
 		D71EA77E2EFB7189005C1738 = {
 			isa = PBXGroup;
 			children = (
+				D73488B42F032A1100D96FEE /* FitLinkWatchComplicationsExtension.entitlements */,
+				D73488B22F0329FD00D96FEE /* FitLinkLiveActivityExtension.entitlements */,
 				D71EA7892EFB7189005C1738 /* FitLink */,
 				D7FC8DB02EFD732A00F7D19F /* FitLinkLiveActivity */,
+				D73480F42F03209400D96FEE /* FitLinkWatch Watch App */,
+				D7SHARED012F03300000AAAA /* Shared */,
+				D73487172F03229300D96FEE /* FitLinkWatchComplications */,
 				D7FC8DAB2EFD732A00F7D19F /* Frameworks */,
 				D71EA7882EFB7189005C1738 /* Products */,
 			);
@@ -170,6 +260,8 @@
 			children = (
 				D71EA7872EFB7189005C1738 /* FitLink.app */,
 				D7FC8DAA2EFD732A00F7D19F /* FitLinkLiveActivityExtension.appex */,
+				D73480F32F03209400D96FEE /* FitLinkWatch Watch App.app */,
+				D73487142F03229300D96FEE /* FitLinkWatchComplicationsExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -194,14 +286,17 @@
 				D71EA7842EFB7189005C1738 /* Frameworks */,
 				D71EA7852EFB7189005C1738 /* Resources */,
 				D7FC8DBF2EFD732A00F7D19F /* Embed Foundation Extensions */,
+				D73481012F03209600D96FEE /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				D7FC8DBD2EFD732A00F7D19F /* PBXTargetDependency */,
+				D73480FC2F03209600D96FEE /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				D71EA7892EFB7189005C1738 /* FitLink */,
+				D7SHARED012F03300000AAAA /* Shared */,
 			);
 			name = FitLink;
 			packageProductDependencies = (
@@ -233,6 +328,54 @@
 			productName = FitLink;
 			productReference = D71EA7872EFB7189005C1738 /* FitLink.app */;
 			productType = "com.apple.product-type.application";
+		};
+		D73480F22F03209400D96FEE /* FitLinkWatch Watch App */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D73480FE2F03209600D96FEE /* Build configuration list for PBXNativeTarget "FitLinkWatch Watch App" */;
+			buildPhases = (
+				D73480EF2F03209400D96FEE /* Sources */,
+				D73480F02F03209400D96FEE /* Frameworks */,
+				D73480F12F03209400D96FEE /* Resources */,
+				D73487242F03229400D96FEE /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				D73487222F03229400D96FEE /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				D73480F42F03209400D96FEE /* FitLinkWatch Watch App */,
+				D7SHARED012F03300000AAAA /* Shared */,
+			);
+			name = "FitLinkWatch Watch App";
+			packageProductDependencies = (
+			);
+			productName = "FitLinkWatch Watch App";
+			productReference = D73480F32F03209400D96FEE /* FitLinkWatch Watch App.app */;
+			productType = "com.apple.product-type.application";
+		};
+		D73487132F03229300D96FEE /* FitLinkWatchComplicationsExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D73487272F03229400D96FEE /* Build configuration list for PBXNativeTarget "FitLinkWatchComplicationsExtension" */;
+			buildPhases = (
+				D73487102F03229300D96FEE /* Sources */,
+				D73487112F03229300D96FEE /* Frameworks */,
+				D73487122F03229300D96FEE /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				D73487172F03229300D96FEE /* FitLinkWatchComplications */,
+				D7SHARED012F03300000AAAA /* Shared */,
+			);
+			name = FitLinkWatchComplicationsExtension;
+			packageProductDependencies = (
+			);
+			productName = FitLinkWatchComplicationsExtension;
+			productReference = D73487142F03229300D96FEE /* FitLinkWatchComplicationsExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 		D7FC8DA92EFD732A00F7D19F /* FitLinkLiveActivityExtension */ = {
 			isa = PBXNativeTarget;
@@ -269,6 +412,12 @@
 					D71EA7862EFB7189005C1738 = {
 						CreatedOnToolsVersion = 26.2;
 					};
+					D73480F22F03209400D96FEE = {
+						CreatedOnToolsVersion = 26.2;
+					};
+					D73487132F03229300D96FEE = {
+						CreatedOnToolsVersion = 26.2;
+					};
 					D7FC8DA92EFD732A00F7D19F = {
 						CreatedOnToolsVersion = 26.2;
 					};
@@ -293,12 +442,28 @@
 			targets = (
 				D71EA7862EFB7189005C1738 /* FitLink */,
 				D7FC8DA92EFD732A00F7D19F /* FitLinkLiveActivityExtension */,
+				D73480F22F03209400D96FEE /* FitLinkWatch Watch App */,
+				D73487132F03229300D96FEE /* FitLinkWatchComplicationsExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		D71EA7852EFB7189005C1738 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D73480F12F03209400D96FEE /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D73487122F03229300D96FEE /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -322,6 +487,20 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D73480EF2F03209400D96FEE /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D73487102F03229300D96FEE /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		D7FC8DA62EFD732A00F7D19F /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -332,6 +511,16 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		D73480FC2F03209600D96FEE /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D73480F22F03209400D96FEE /* FitLinkWatch Watch App */;
+			targetProxy = D73480FB2F03209600D96FEE /* PBXContainerItemProxy */;
+		};
+		D73487222F03229400D96FEE /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D73487132F03229300D96FEE /* FitLinkWatchComplicationsExtension */;
+			targetProxy = D73487212F03229400D96FEE /* PBXContainerItemProxy */;
+		};
 		D7FC8DBD2EFD732A00F7D19F /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = D7FC8DA92EFD732A00F7D19F /* FitLinkLiveActivityExtension */;
@@ -539,11 +728,152 @@
 			};
 			name = Release;
 		};
+		D73480FF2F03209600D96FEE /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "FitLinkWatch Watch App/FitLinkWatch Watch App.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8QV7CWRK4U;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = FitLinkWatch;
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "FitLink needs to read your health data to display steps, calories, and exercise minutes on your watch.";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.edgetr.FitLink;
+				INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.edgetr.FitLink.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Debug;
+		};
+		D73481002F03209600D96FEE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "FitLinkWatch Watch App/FitLinkWatch Watch App.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8QV7CWRK4U;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = FitLinkWatch;
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "FitLink needs to read your health data to display steps, calories, and exercise minutes on your watch.";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.edgetr.FitLink;
+				INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.edgetr.FitLink.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Release;
+		};
+		D73487252F03229400D96FEE /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = FitLinkWatchComplicationsExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8QV7CWRK4U;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = FitLinkWatchComplications/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = FitLinkWatchComplications;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.edgetr.FitLink.watchkitapp.FitLinkWatchComplications;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Debug;
+		};
+		D73487262F03229400D96FEE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = FitLinkWatchComplicationsExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8QV7CWRK4U;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = FitLinkWatchComplications/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = FitLinkWatchComplications;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.edgetr.FitLink.watchkitapp.FitLinkWatchComplications;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Release;
+		};
 		D7FC8DC02EFD732A00F7D19F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = FitLinkLiveActivityExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 8QV7CWRK4U;
@@ -574,6 +904,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = FitLinkLiveActivityExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 8QV7CWRK4U;
@@ -616,6 +947,24 @@
 			buildConfigurations = (
 				D71EA7932EFB718A005C1738 /* Debug */,
 				D71EA7942EFB718A005C1738 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		D73480FE2F03209600D96FEE /* Build configuration list for PBXNativeTarget "FitLinkWatch Watch App" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D73480FF2F03209600D96FEE /* Debug */,
+				D73481002F03209600D96FEE /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		D73487272F03229400D96FEE /* Build configuration list for PBXNativeTarget "FitLinkWatchComplicationsExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D73487252F03229400D96FEE /* Debug */,
+				D73487262F03229400D96FEE /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -203,8 +203,8 @@ private struct DietPlanGeneratingView: View {
             if canCloseApp {
                 GlassCard(tint: .blue.opacity(0.1)) {
                     HStack(spacing: 12) {
-                        Image(systemName: "bell.badge.fill")
-                            .font(.title2)
+                        FitLinkIcon.notification.image()
+                            .frame(width: 28, height: 28)
                             .foregroundStyle(.blue)
                         
                         VStack(alignment: .leading, spacing: 4) {
@@ -311,8 +311,8 @@ private struct DietPlanInputView: View {
                             )
                             .frame(width: 80, height: 80)
                             .overlay(
-                                Image(systemName: "fork.knife")
-                                    .font(.system(size: 32))
+                                FitLinkIcon.diet.image()
+                                    .frame(width: 48, height: 48)
                                     .foregroundStyle(.white)
                             )
                             .shadow(color: .green.opacity(0.3), radius: 10, x: 0, y: 5)

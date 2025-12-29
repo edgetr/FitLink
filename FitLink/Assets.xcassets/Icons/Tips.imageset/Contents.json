@@ -1,0 +1,8 @@
+{
+  "images" : [
+    { "filename" : "Tips.png", "idiom" : "universal", "scale" : "1x" },
+    { "filename" : "Tips@2x.png", "idiom" : "universal", "scale" : "2x" },
+    { "filename" : "Tips@3x.png", "idiom" : "universal", "scale" : "3x" }
+  ],
+  "info" : { "author" : "xcode", "version" : 1 }
+}

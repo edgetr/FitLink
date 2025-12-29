@@ -331,6 +331,31 @@ extension Array {
     }
 }
 
+// MARK: - Chat Integration
+
+extension FriendService {
+    
+    /// Initialize a chat between two users when they become friends
+    /// Called automatically when a friend request is accepted
+    func initializeChat(user1Id: String, user2Id: String) async throws -> String {
+        let chat = try await ChatService.shared.getOrCreateChat(user1Id: user1Id, user2Id: user2Id)
+        
+        // Initialize encryption for the chat
+        try await ChatService.shared.initializeEncryption(
+            chatId: chat.id,
+            currentUserId: user1Id,
+            otherUserId: user2Id
+        )
+        
+        return chat.id
+    }
+    
+    /// Get the chat ID for a friendship
+    func getChatId(userId: String, friendId: String) -> String {
+        FriendChat.deterministicId(user1: userId, user2: friendId)
+    }
+}
+
 // MARK: - Protocol Conformance
 
 extension FriendService: FriendServiceProtocol {}

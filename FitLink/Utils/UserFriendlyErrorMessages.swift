@@ -104,6 +104,13 @@ enum UserFriendlyErrorMessages {
         static let selfRequest = "You can't send a friend request to yourself."
         static let loadFriendsFailed = "Unable to load friends. Please try again."
         static let searchFailed = "Unable to search for users. Please try again."
+        static let chatNotFound = "Unable to find this conversation."
+        static let messageNotFound = "Message not found."
+        static let encryptionNotInitialized = "Secure chat not ready. Please try again."
+        static let sendMessageFailed = "Failed to send message. Please try again."
+        static let loadMessagesFailed = "Failed to load messages. Please try again."
+        static let encryptionFailed = "Failed to encrypt message. Please try again."
+        static let decryptionFailed = "Unable to decrypt message."
         static let `default` = "A social feature error occurred. Please try again."
     }
     

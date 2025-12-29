@@ -95,8 +95,8 @@ struct HabitTrackerView: View {
             
             GlassCard {
                 VStack(spacing: GlassTokens.Padding.standard) {
-                    Image(systemName: "checkmark.circle.dashed")
-                        .font(.system(size: GlassTokens.IconSize.emptyState))
+                    FitLinkIcon.habits.image()
+                        .frame(width: GlassTokens.IconSize.emptyState, height: GlassTokens.IconSize.emptyState)
                         .foregroundStyle(.secondary)
                     
                     Text("No habits yet")

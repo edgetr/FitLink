@@ -48,11 +48,21 @@ struct ProfileMenuView: View {
             
             Section {
                 NavigationLink(destination: ProfileView()) {
-                    Label("Edit Profile", systemImage: "person.circle")
+                    Label {
+                        Text("Edit Profile")
+                    } icon: {
+                        FitLinkIcon.profile.image()
+                            .frame(width: 22, height: 22)
+                    }
                 }
                 
                 NavigationLink(destination: FriendsView(userId: userId)) {
-                    Label("Friends", systemImage: "person.2")
+                    Label {
+                        Text("Friends")
+                    } icon: {
+                        FitLinkIcon.friends.image()
+                            .frame(width: 22, height: 22)
+                    }
                 }
                 
                 NavigationLink(destination: SettingsView()) {

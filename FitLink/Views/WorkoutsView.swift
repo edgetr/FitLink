@@ -102,12 +102,12 @@ private struct WorkoutInputView: View {
             ScrollView {
                 VStack(spacing: 24) {
                     // Header
-                    VStack(spacing: 16) {
-                        Image(systemName: "dumbbell.fill")
-                            .font(.system(size: 36))
-                            .foregroundStyle(.primary)
-                            .frame(width: 80, height: 80)
-                            .glassEffect(.regular, in: Circle())
+                        VStack(spacing: 16) {
+                            FitLinkIcon.workouts.image()
+                                .frame(width: 48, height: 48)
+                                .foregroundStyle(.primary)
+                                .frame(width: 80, height: 80)
+                                .glassEffect(.regular, in: Circle())
                         
                         VStack(spacing: 4) {
                             Text("AI Workout Planner")
@@ -125,8 +125,8 @@ private struct WorkoutInputView: View {
                     if !viewModel.hasSeenWorkoutOnboarding {
                         GlassCard(isInteractive: true) {
                             HStack(alignment: .top, spacing: 16) {
-                                Image(systemName: "lightbulb.fill")
-                                    .font(.title)
+                                FitLinkIcon.tips.image()
+                                    .frame(width: 28, height: 28)
                                     .foregroundStyle(.primary)
                                 
                                 VStack(alignment: .leading, spacing: 8) {
@@ -340,7 +340,7 @@ private struct WorkoutGenerationView: View {
                 if viewModel.isGeneratingHome {
                     GenerationProgressRow(
                         title: "Home Workout Plan",
-                        icon: "house.fill",
+                        icon: .home,
                         progress: viewModel.homeProgress,
                         color: .primary
                     )
@@ -349,7 +349,7 @@ private struct WorkoutGenerationView: View {
                 if viewModel.isGeneratingGym {
                     GenerationProgressRow(
                         title: "Gym Workout Plan",
-                        icon: "dumbbell.fill",
+                        icon: .workouts,
                         progress: viewModel.gymProgress,
                         color: .primary
                     )
@@ -364,8 +364,8 @@ private struct WorkoutGenerationView: View {
             if canCloseApp {
                 GlassCard {
                     HStack(spacing: 12) {
-                        Image(systemName: "bell.badge.fill")
-                            .font(.title2)
+                        FitLinkIcon.notification.image()
+                            .frame(width: 28, height: 28)
                             .foregroundStyle(.primary)
                         
                         VStack(alignment: .leading, spacing: 4) {
@@ -389,7 +389,7 @@ private struct WorkoutGenerationView: View {
 
 private struct GenerationProgressRow: View {
     let title: String
-    let icon: String
+    let icon: FitLinkIcon
     let progress: Double
     let color: Color
     
@@ -397,7 +397,8 @@ private struct GenerationProgressRow: View {
         GlassCard {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    Image(systemName: icon)
+                    icon.image()
+                        .frame(width: 24, height: 24)
                         .foregroundStyle(color)
                     Text(title)
                         .font(.headline)

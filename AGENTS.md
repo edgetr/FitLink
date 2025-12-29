@@ -1,20 +1,52 @@
 # FitLink Agent Guidelines
 
 **Generated:** 2025-12-29
-**Commit:** ec5c3aa
-**Branch:** 12-28-feat_comprehensive_app_enhancements_with_health_tracking_diet_planning_and_social_features
+**Commit:** c35894c
+**Branch:** main
 
 ## Overview
 
-iOS 18+ fitness/health app with AI-powered diet/workout planning, habit tracking, and social features. Uses Gemini AI for conversational plan generation, Firebase Firestore for persistence, HealthKit for metrics, and iOS 26 Liquid Glass UI.
+iOS 18+ fitness/health app with AI-powered diet/workout planning, habit tracking, and social features. Uses Gemini AI (Flash for chat, Pro for generation), Firebase Firestore, HealthKit, and iOS 26 Liquid Glass UI.
+
+## Commands
+
+```bash
+# Build (always use iPhone 17 Pro)
+xcodebuild -project FitLink.xcodeproj -scheme FitLink \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
+
+# Build (filter output)
+xcodebuild ... 2>&1 | grep -E "(BUILD|error:|warning:.*FitLink/)"
+
+# Test all
+xcodebuild -project FitLink.xcodeproj -scheme FitLink \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
+
+# Test single class
+xcodebuild test -project FitLink.xcodeproj -scheme FitLink \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  -only-testing:FitLinkTests/TestClassName
+
+# Test single method
+xcodebuild test -project FitLink.xcodeproj -scheme FitLink \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  -only-testing:FitLinkTests/TestClassName/testMethodName
+
+# Security scan
+./scripts/scan-secrets.sh --all
+
+# XcodeBuildMCP (preferred): Use session-set-defaults + build_sim/build_run_sim
+```
+
+**Git**: Always use Graphite (`gt`) for branching, commits, and PRs.
 
 ## Structure
 
 ```
 FitLink/
-├── Models/           # Data models (Codable structs, CodingKeys for Firestore)
-├── Services/         # Business logic (actors for thread-safety, singletons + DI)
-├── ViewModels/       # @MainActor ObservableObject with @Published state
+├── Models/           # Codable structs, snake_case CodingKeys for Firestore
+├── Services/         # actors (thread-safe) or @MainActor classes (UI-bound)
+├── ViewModels/       # @MainActor class + ObservableObject + @Published
 ├── Views/            # SwiftUI views using GlassTokens design system
 │   ├── Auth/         # Authentication flow
 │   ├── Dashboard/    # Activity patterns
@@ -27,109 +59,159 @@ FitLinkLiveActivity/  # Widget extension for Focus Timer Dynamic Island
 scripts/              # Security scanning
 ```
 
-## Where to Look
-
-| Task | Location | Notes |
-|------|----------|-------|
-| Add AI feature | `Services/GeminiAIService.swift` | Actor-based, model routing by task type |
-| Add new plan type | `Services/PlanGenerationCoordinator.swift` | State machine pattern |
-| Modify diet flow | `ViewModels/DietPlannerViewModel.swift` | viewState enum is source of truth |
-| Add glass component | `Utils/Glass*.swift` | Follow GlassTokens spacing/radii |
-| Health data sync | `Services/HealthDataCollector.swift` | Actor, batch operations |
-| Add notification | `Services/NotificationService.swift` | Categories defined, schedule methods |
-| Firebase persistence | Model's `toDictionary()`/`fromDictionary()` | snake_case CodingKeys |
-| Live Activity | `FitLinkLiveActivity/` | Shared attributes in Models/ |
-
-## Commands
-
-```bash
-# Build
-xcodebuild -project FitLink.xcodeproj -scheme FitLink -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
-
-# Test all
-xcodebuild -project FitLink.xcodeproj -scheme FitLink -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
-
-# Test single
-xcodebuild test -project FitLink.xcodeproj -scheme FitLink -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:FitLinkTests/TestClassName/testMethodName
-
-# Filter build output (FitLink errors/warnings only)
-xcodebuild ... 2>&1 | grep -E "(BUILD|error:|warning:.*FitLink/)"
-
-# Security scan
-./scripts/scan-secrets.sh --all
-```
-
-## Conventions
+## Code Style
 
 ### Type Patterns
-- **Services**: `actor` for thread-safe services (`GeminiAIService`, `HealthDataCollector`, `MemoryService`)
-- **Services with UI binding**: `final class` with `@MainActor` (`SessionManager`, `FocusTimerManager`)
-- **ViewModels**: `@MainActor class` + `ObservableObject` + `@Published`
-- **Models**: `struct` with `Codable`, `CodingKeys` use `snake_case` for Firestore
-
-### Service Access Pattern
 ```swift
-// Dual access: singleton for convenience, injection via AppEnvironment
-DietPlanService.shared  // Quick access
-appEnvironment.dietPlanService  // For testability
-```
-
-### ViewModel State Machine
-```swift
-// Single source of truth via viewState enum
-enum DietPlannerViewState {
-    case idle, loading, generating, conversing, ...
+// Services: actor for thread-safety
+actor GeminiAIService {
+    static let shared = GeminiAIService()
+    func generatePlan(...) async throws -> Plan
 }
-@Published var viewState: DietPlannerViewState = .idle
+
+// Services with UI binding: final class @MainActor
+@MainActor
+final class SessionManager: ObservableObject { ... }
+
+// ViewModels: @MainActor class
+@MainActor
+class DietPlannerViewModel: ObservableObject {
+    @Published var viewState: DietPlannerViewState = .idle
+}
+
+// Models: struct with Codable, snake_case CodingKeys
+struct User: Identifiable, Codable {
+    enum CodingKeys: String, CodingKey {
+        case displayName = "display_name"
+        case photoURL = "photo_url"
+    }
+    func toDictionary() -> [String: Any] { ... }
+    static func fromDictionary(_ data: [String: Any], id: String) -> User? { ... }
+}
 ```
 
-### iOS Version Handling
-- Target iOS 18+, Liquid Glass APIs require iOS 26
-- Use `@available(iOS 26.0, *)` checks for native glass
-- `LiquidGlass*` components auto-fallback to material on older iOS
+### Imports & Organization
+```swift
+import SwiftUI
+import Combine          // Required for @Published
+import FirebaseFirestore
+#if canImport(UIKit)
+import UIKit
+#endif
 
-### Code Organization
-- Use `// MARK: -` sections extensively
-- Imports: `SwiftUI`, `Combine` (for `@Published`), `#if canImport(UIKit)`
+// MARK: - Section Name
+// Use MARK comments extensively for code organization
+```
+
+### Naming Conventions
+- **Services**: `*Service`, `*Manager`, `*Coordinator`
+- **ViewModels**: `*ViewModel`
+- **Protocols**: `*Protocol` suffix for DI (e.g., `DietPlanServiceProtocol`)
+- **Enums**: PascalCase names, camelCase cases
+- **Firestore keys**: snake_case in CodingKeys
+
+### Error Handling
+```swift
+// Use ErrorHandler for unified error handling
+let appError = ErrorHandler.shared.handle(error, category: .network)
+
+// Use AppLogger for categorized logging
+AppLogger.shared.info("Message", category: .health)
+AppLogger.shared.error("Failed: \(error)", category: .ai)
+
+// Never use empty catch blocks
+do { try action() } catch { AppLogger.shared.error("Failed: \(error)") }
+```
+
+### Glass UI (GlassTokens)
+```swift
+// Spacing
+GlassTokens.Padding.small     // 8pt - related elements
+GlassTokens.Padding.standard  // 16pt - default
+GlassTokens.Padding.section   // 24pt - sections
+GlassTokens.Layout.pageHorizontalPadding  // 20pt
+
+// Corner radii
+GlassTokens.Radius.small   // 8pt - buttons
+GlassTokens.Radius.card    // 16pt - cards
+GlassTokens.Radius.overlay // 20pt - sheets
+GlassTokens.Radius.pill    // 24pt - capsules
+
+// Use .symmetricPadding() NOT .padding(horizontal:vertical:) - iOS 26 conflict
+view.symmetricPadding(horizontal: 20, vertical: 12)
+
+// iOS 26+ native glass
+@available(iOS 26.0, *)
+view.glassEffect(.regular.interactive(), in: Capsule())
+```
 
 ## Anti-Patterns (NEVER Do)
 
 | Pattern | Why | Alternative |
 |---------|-----|-------------|
-| `as any`, `@ts-ignore` | Type safety violation | Fix the actual type |
 | Force unwraps `!` | Crashes | `guard let`, `if let`, `??` |
-| Empty catch blocks | Silent failures | Log and handle errors |
-| Direct styling without GlassTokens | Inconsistent UI | Use `GlassTokens.Radius.*`, `GlassTokens.Padding.*` |
-| Blocking main thread for network | UI freeze | `async/await` with actors |
-| Committing `APIConfig.local.plist`, `GoogleService-Info.plist` | Security leak | Listed in `.gitignore` |
+| `as any`, type erasure | Type safety | Fix actual type |
+| Empty catch blocks | Silent failures | Log and handle |
+| Direct styling values | Inconsistent UI | Use `GlassTokens.*` |
+| `.padding(horizontal:vertical:)` | iOS 26 conflict | `.symmetricPadding()` |
+| Blocking main thread | UI freeze | `async/await` with actors |
+| `Task {}` in actors without `@Sendable` | Concurrency bug | Use `@Sendable` closures |
+| Commit sensitive files | Security leak | Listed in `.gitignore` |
 
-## Unique Patterns
+**Sensitive files (never commit)**: `APIConfig.local.plist`, `GoogleService-Info.plist`, `.env*`, `*.secret`
 
-### AI Plan Generation Flow
-1. User starts conversation → `PlanGenerationCoordinator` manages state machine
-2. Conversation persisted to Firestore via `PlanGenerationService`
-3. `GeminiAIService` routes to appropriate model (Flash for chat, Pro for generation)
-4. Response validated via `DietPlanResponseValidator` / extracted JSON
-5. Partial success handled by `DietPlanPartialSuccessHandler`
+## Key Patterns
 
-### Health Data Architecture
+### Service Access (Dual Pattern)
+```swift
+DietPlanService.shared           // Quick access
+appEnvironment.dietPlanService   // Testable via DI
+```
+
+### ViewModel State Machine
+```swift
+enum DietPlannerViewState: Equatable {
+    case idle, loading, generating, conversing, ...
+}
+@Published var viewState: DietPlannerViewState = .idle
+```
+
+### AI Model Routing (GeminiAIService)
+- **Flash**: Conversational chat, minimal thinking
+- **Pro**: Plan generation, high thinking
+- Task types: `.conversationalGathering`, `.dietPlanGeneration`, `.workoutPlanGeneration`
+
+### Health Data Flow
 ```
 HealthKit → HealthDataCollector (actor)
          → HealthKitRepository (actor, anchored queries)
          → HealthMetricsService → Firestore
-         → HealthSyncScheduler (background refresh)
+         → HealthSyncScheduler (BGTaskScheduler)
 ```
 
-### Memory System
-`MemoryService` (actor) stores user preferences, learned patterns, conversation context to Firestore. Used by `ContextAwarePromptBuilder` to personalize AI responses.
+## Where to Look
+
+| Task | Location | Notes |
+|------|----------|-------|
+| Add AI feature | `Services/GeminiAIService.swift` | Actor, model routing |
+| Add plan type | `Services/PlanGenerationCoordinator.swift` | State machine |
+| Modify diet flow | `ViewModels/DietPlannerViewModel.swift` | viewState enum |
+| Add glass component | `Utils/Glass*.swift` | Follow GlassTokens |
+| Health data sync | `Services/HealthDataCollector.swift` | Actor, batch ops |
+| Add notification | `Services/NotificationService.swift` | Categories defined |
+| Firebase CRUD | Model's `toDictionary()`/`fromDictionary()` | snake_case keys |
+| Live Activity | `FitLinkLiveActivity/` | Shared attributes in Models/ |
+| Error handling | `Utils/ErrorHandler.swift` | Categorized, user-friendly |
+| Logging | `Utils/AppLogger.swift` | Category-based |
 
 ## Notes
 
-- **Simulator**: Always use `iPhone 17 Pro` for builds
-- **Graphite**: Use `gt` commands for git operations (branching, commits, PRs)
-- **XcodeBuildMCP**: Preferred for building/testing via simulator interaction
-- **Firebase**: 100MB Firestore cache configured in `FitLinkApp.swift`
-- **Background sync**: `HealthSyncScheduler` uses BGTaskScheduler for health data refresh
-- **Live Activities**: Focus timer state shared via App Group `group.com.fitlink.shared`
+- **Simulator**: Always `iPhone 17 Pro`
+- **XcodeBuildMCP**: Preferred for building/testing
+- **Firebase**: 100MB Firestore cache in `FitLinkApp.swift`
+- **Background sync**: `HealthSyncScheduler` uses BGTaskScheduler
+- **Live Activities**: App Group `group.com.fitlink.shared`
+- **Encryption**: `ChatEncryptionService` uses X25519 + AES-256-GCM, keys in Keychain
 
 See `UI_practices.md` for complete Liquid Glass design patterns.
+See `Services/SERVICES_AGENTS.md` and `Utils/UTILS_AGENTS.md` for detailed module guidance.

@@ -34,8 +34,8 @@ struct LoadingView: View {
                 .ignoresSafeArea()
             
             VStack(spacing: 16) {
-                Image(systemName: "heart.fill")
-                    .font(.system(size: 60))
+                FitLinkIcon.heartRate.image()
+                    .frame(width: 60, height: 60)
                     .foregroundStyle(.red.gradient)
                 
                 Text("FitLink")

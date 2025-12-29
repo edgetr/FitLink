@@ -167,8 +167,8 @@ struct DashboardView: View {
     
     private var headerLogo: some View {
         HStack(spacing: 8) {
-            Image(systemName: "heart.fill")
-                .font(.system(size: 16))
+            FitLinkIcon.heartRate.image()
+                .frame(width: 20, height: 20)
                 .foregroundStyle(
                     LinearGradient(
                         colors: [.pink, .red],
@@ -217,7 +217,7 @@ struct DashboardView: View {
             HStack(spacing: 12) {
                 NavigationLink(destination: CaloriesDetailView(viewModel: activitySummaryViewModel)) {
                     QuickStatCard(
-                        icon: "flame.fill",
+                        icon: .calories,
                         value: "\(formatNumber(activitySummaryViewModel.calories))",
                         label: "cal",
                         gradient: [.orange, .red]
@@ -227,7 +227,7 @@ struct DashboardView: View {
                 
                 NavigationLink(destination: StepsDetailView(viewModel: activitySummaryViewModel)) {
                     QuickStatCard(
-                        icon: "figure.walk",
+                        icon: .steps,
                         value: formatNumber(activitySummaryViewModel.steps),
                         label: "steps",
                         gradient: [.blue, .cyan]
@@ -236,7 +236,7 @@ struct DashboardView: View {
                 .buttonStyle(.plain)
                 
                 QuickStatCard(
-                    icon: "trophy.fill",
+                    icon: .streaks,
                     value: "\(streakCount)",
                     label: "streak",
                     gradient: [.yellow, .orange]
@@ -246,7 +246,7 @@ struct DashboardView: View {
             HStack(spacing: 12) {
                 NavigationLink(destination: SleepDetailView(viewModel: activitySummaryViewModel)) {
                     QuickStatCard(
-                        icon: "moon.fill",
+                        icon: .sleep,
                         value: activitySummaryViewModel.formattedSleepHours,
                         label: "sleep",
                         gradient: [.indigo, .purple]
@@ -256,7 +256,7 @@ struct DashboardView: View {
                 
                 NavigationLink(destination: HeartRateDetailView(viewModel: activitySummaryViewModel)) {
                     QuickStatCard(
-                        icon: "heart.fill",
+                        icon: .heartRate,
                         value: "\(activitySummaryViewModel.heartRate)",
                         label: "heart rate",
                         gradient: [.pink, .red]
@@ -266,7 +266,7 @@ struct DashboardView: View {
                 
                 NavigationLink(destination: ExerciseMinutesDetailView(viewModel: activitySummaryViewModel)) {
                     QuickStatCard(
-                        icon: "figure.run",
+                        icon: .exercise,
                         value: "\(activitySummaryViewModel.exerciseMinutes)",
                         label: "exercise",
                         gradient: [.green, .mint]
@@ -285,8 +285,8 @@ struct DashboardView: View {
     private var motivationCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Image(systemName: "quote.opening")
-                    .font(.title2)
+                FitLinkIcon.quotes.image()
+                    .frame(width: 28, height: 28)
                     .foregroundStyle(.secondary)
                 Spacer()
             }
@@ -330,8 +330,8 @@ struct DashboardView: View {
                         .fill(Color.orange.opacity(0.2))
                         .frame(width: 44, height: 44)
                     
-                    Image(systemName: "person.2.fill")
-                        .font(.system(size: 18))
+                    FitLinkIcon.friends.image()
+                        .frame(width: 26, height: 26)
                         .foregroundStyle(.orange)
                 }
                 
@@ -361,7 +361,7 @@ struct DashboardView: View {
     private var aiWorkoutsCard: some View {
         NavigationLink(destination: WorkoutsView().onAppear { StreakManager.shared.recordAppUsage() }) {
             DashboardNavigationCard(
-                icon: "dumbbell.fill",
+                icon: .workouts,
                 iconColor: .primary,
                 title: "AI Workouts",
                 subtitle: "Personalized home & gym plans"
@@ -374,7 +374,7 @@ struct DashboardView: View {
     private var aiDietPlannerCard: some View {
         NavigationLink(destination: DietPlannerView().onAppear { StreakManager.shared.recordAppUsage() }) {
             DashboardNavigationCard(
-                icon: "fork.knife",
+                icon: .diet,
                 iconColor: .primary,
                 title: "AI Diet Planner",
                 subtitle: "AI-curated weekly meal plans"
@@ -393,8 +393,8 @@ struct DashboardView: View {
     private var habitTrackerCard: some View {
         NavigationLink(destination: HabitTrackerView(viewModel: habitTrackerViewModel).onAppear { StreakManager.shared.recordAppUsage() }) {
             HStack(spacing: 16) {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 24))
+                FitLinkIcon.habits.image()
+                    .frame(width: 32, height: 32)
                     .foregroundStyle(.primary)
                     .frame(width: 50, height: 50)
                     .glassEffect(.regular, in: Circle())
@@ -437,22 +437,46 @@ struct DashboardView: View {
 }
 
 struct QuickStatCard: View {
-    let icon: String
+    let icon: FitLinkIcon?
+    let sfSymbol: String?
     let value: String
     let label: String
     let gradient: [Color]
     
+    init(icon: FitLinkIcon, value: String, label: String, gradient: [Color]) {
+        self.icon = icon
+        self.sfSymbol = nil
+        self.value = value
+        self.label = label
+        self.gradient = gradient
+    }
+    
+    init(sfSymbol: String, value: String, label: String, gradient: [Color]) {
+        self.icon = nil
+        self.sfSymbol = sfSymbol
+        self.value = value
+        self.label = label
+        self.gradient = gradient
+    }
+    
     var body: some View {
         VStack(spacing: 8) {
-            Image(systemName: icon)
-                .font(.title2)
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: gradient,
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
+            Group {
+                if let fitLinkIcon = icon {
+                    fitLinkIcon.image()
+                        .frame(width: 28, height: 28)
+                } else if let symbol = sfSymbol {
+                    Image(systemName: symbol)
+                }
+            }
+            .font(.title2)
+            .foregroundStyle(
+                LinearGradient(
+                    colors: gradient,
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
                 )
+            )
             
             Text(value)
                 .font(.title3)
@@ -473,18 +497,42 @@ struct QuickStatCard: View {
 }
 
 struct DashboardNavigationCard: View {
-    let icon: String
+    let icon: FitLinkIcon?
+    let sfSymbol: String?
     let iconColor: Color
     let title: String
     let subtitle: String
     
+    init(icon: FitLinkIcon, iconColor: Color, title: String, subtitle: String) {
+        self.icon = icon
+        self.sfSymbol = nil
+        self.iconColor = iconColor
+        self.title = title
+        self.subtitle = subtitle
+    }
+    
+    init(sfSymbol: String, iconColor: Color, title: String, subtitle: String) {
+        self.icon = nil
+        self.sfSymbol = sfSymbol
+        self.iconColor = iconColor
+        self.title = title
+        self.subtitle = subtitle
+    }
+    
     var body: some View {
         HStack(spacing: 16) {
-            Image(systemName: icon)
-                .font(.system(size: 24))
-                .foregroundStyle(iconColor)
-                .frame(width: 50, height: 50)
-                .glassEffect(.regular, in: Circle())
+            Group {
+                if let fitLinkIcon = icon {
+                    fitLinkIcon.image()
+                        .frame(width: 32, height: 32)
+                } else if let symbol = sfSymbol {
+                    Image(systemName: symbol)
+                }
+            }
+            .font(.system(size: 32))
+            .foregroundStyle(iconColor)
+            .frame(width: 50, height: 50)
+            .glassEffect(.regular, in: Circle())
             
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
