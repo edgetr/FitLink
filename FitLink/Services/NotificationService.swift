@@ -537,6 +537,50 @@ final class NotificationService: NSObject, ObservableObject {
         setBadgeCount(0)
     }
     
+    // MARK: - Immediate Local Notifications
+    
+    /// Send an immediate local notification
+    /// - Parameters:
+    ///   - title: The notification title
+    ///   - body: The notification body message
+    ///   - category: Optional notification category
+    func sendLocalNotification(
+        title: String,
+        body: String,
+        category: NotificationCategory? = nil
+    ) {
+        guard isAuthorized else {
+            log("Cannot send notification - not authorized")
+            return
+        }
+        
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        
+        if let category = category {
+            content.categoryIdentifier = category.rawValue
+        }
+        
+        // Trigger immediately (1 second delay for reliability)
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+        
+        let request = UNNotificationRequest(
+            identifier: UUID().uuidString,
+            content: content,
+            trigger: trigger
+        )
+        
+        notificationCenter.add(request) { [weak self] error in
+            if let error = error {
+                self?.log("Failed to send notification: \(error.localizedDescription)")
+            } else {
+                self?.log("Sent notification: \(title)")
+            }
+        }
+    }
+    
     // MARK: - Pending Notifications
     
     /// Get all pending notification requests

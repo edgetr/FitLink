@@ -103,21 +103,11 @@ private struct WorkoutInputView: View {
                 VStack(spacing: 24) {
                     // Header
                     VStack(spacing: 16) {
-                        Circle()
-                            .fill(
-                                LinearGradient(
-                                    colors: [.blue, .purple],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
+                        Image(systemName: "dumbbell.fill")
+                            .font(.system(size: 36))
+                            .foregroundStyle(.primary)
                             .frame(width: 80, height: 80)
-                            .overlay(
-                                Image(systemName: "dumbbell.fill")
-                                    .font(.system(size: 32))
-                                    .foregroundStyle(.white)
-                            )
-                            .shadow(color: .blue.opacity(0.3), radius: 10, x: 0, y: 5)
+                            .glassEffect(.regular, in: Circle())
                         
                         VStack(spacing: 4) {
                             Text("AI Workout Planner")
@@ -133,11 +123,11 @@ private struct WorkoutInputView: View {
                     
                     // Onboarding Tip
                     if !viewModel.hasSeenWorkoutOnboarding {
-                        GlassCard(tint: .blue.opacity(0.1), isInteractive: true) {
+                        GlassCard(isInteractive: true) {
                             HStack(alignment: .top, spacing: 16) {
                                 Image(systemName: "lightbulb.fill")
                                     .font(.title)
-                                    .foregroundStyle(.yellow)
+                                    .foregroundStyle(.primary)
                                 
                                 VStack(alignment: .leading, spacing: 8) {
                                     Text("Personalized Training")
@@ -276,25 +266,23 @@ private struct LiquidGlassChatBar: View {
                 }) {
                     ZStack {
                         Circle()
-                            .fill(
-                                LinearGradient(
-                                    colors: [.blue, .purple],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
+                            .fill(.regularMaterial)
+                            .overlay(
+                                Circle()
+                                    .strokeBorder(Color.white.opacity(0.2), lineWidth: 1)
                             )
                         
                         if isLoading {
                             ProgressView()
-                                .tint(.white)
+                                .tint(.primary)
                         } else {
                             Image(systemName: "arrow.up")
                                 .font(.system(size: 20, weight: .bold))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(.primary)
                         }
                     }
                     .frame(width: 44, height: 44)
-                    .shadow(color: .blue.opacity(0.3), radius: 4, x: 0, y: 2)
+                    .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
                 }
                 .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isLoading)
             }
@@ -354,7 +342,7 @@ private struct WorkoutGenerationView: View {
                         title: "Home Workout Plan",
                         icon: "house.fill",
                         progress: viewModel.homeProgress,
-                        color: .blue
+                        color: .primary
                     )
                 }
                 
@@ -363,7 +351,7 @@ private struct WorkoutGenerationView: View {
                         title: "Gym Workout Plan",
                         icon: "dumbbell.fill",
                         progress: viewModel.gymProgress,
-                        color: .purple
+                        color: .primary
                     )
                 }
             }
@@ -374,11 +362,11 @@ private struct WorkoutGenerationView: View {
                 .foregroundStyle(.secondary)
             
             if canCloseApp {
-                GlassCard(tint: .blue.opacity(0.1)) {
+                GlassCard {
                     HStack(spacing: 12) {
                         Image(systemName: "bell.badge.fill")
                             .font(.title2)
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(.primary)
                         
                         VStack(alignment: .leading, spacing: 4) {
                             Text("You can close the app")

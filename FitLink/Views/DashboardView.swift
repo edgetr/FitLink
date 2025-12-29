@@ -94,16 +94,8 @@ struct DashboardView: View {
                 }
             }
             .background(
-                LinearGradient(
-                    colors: [
-                        Color(UIColor.systemBackground),
-                        Color.purple.opacity(0.15),
-                        Color.blue.opacity(0.10)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .ignoresSafeArea()
+                Color(UIColor.systemBackground)
+                    .ignoresSafeArea()
             )
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -133,11 +125,8 @@ struct DashboardView: View {
                 case .habitTracker:
                     HabitTrackerView(viewModel: habitTrackerViewModel)
                         .onAppear { StreakManager.shared.recordAppUsage() }
-                case .focusSession:
-                    FocusView(viewModel: habitTrackerViewModel)
-                        .onAppear { StreakManager.shared.recordAppUsage() }
-                case .currentFocusSession:
-                    FocusView(viewModel: habitTrackerViewModel)
+                case .focusSession, .currentFocusSession:
+                    HabitTrackerView(viewModel: habitTrackerViewModel)
                         .onAppear { StreakManager.shared.recordAppUsage() }
                 case .recipe:
                     DietPlannerView()
@@ -298,7 +287,7 @@ struct DashboardView: View {
             HStack {
                 Image(systemName: "quote.opening")
                     .font(.title2)
-                    .foregroundStyle(.purple.opacity(0.7))
+                    .foregroundStyle(.secondary)
                 Spacer()
             }
             
@@ -314,18 +303,7 @@ struct DashboardView: View {
         }
         .padding(GlassTokens.Padding.standard)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            LinearGradient(
-                colors: [Color.purple.opacity(0.1), Color.blue.opacity(0.1)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
-        .clipShape(RoundedRectangle(cornerRadius: GlassTokens.Radius.card))
-        .overlay(
-            RoundedRectangle(cornerRadius: GlassTokens.Radius.card)
-                .stroke(Color.purple.opacity(0.2), lineWidth: 1)
-        )
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: GlassTokens.Radius.card, style: .continuous))
     }
     
     private func sectionHeader(_ title: String) -> some View {
@@ -373,8 +351,9 @@ struct DashboardView: View {
                     .foregroundStyle(.tertiary)
             }
             .padding(GlassTokens.Padding.standard)
-            .glassEffect(.regular.interactive().tint(.orange), in: RoundedRectangle(cornerRadius: GlassTokens.Radius.card, style: .continuous))
             .contentShape(RoundedRectangle(cornerRadius: GlassTokens.Radius.card, style: .continuous))
+            .glassEffect(.regular.interactive().tint(.orange), in: RoundedRectangle(cornerRadius: GlassTokens.Radius.card, style: .continuous))
+            .animation(nil)
         }
         .buttonStyle(.plain)
     }
@@ -382,8 +361,8 @@ struct DashboardView: View {
     private var aiWorkoutsCard: some View {
         NavigationLink(destination: WorkoutsView().onAppear { StreakManager.shared.recordAppUsage() }) {
             DashboardNavigationCard(
-                icon: "figure.run",
-                iconGradient: [.blue, .purple],
+                icon: "dumbbell.fill",
+                iconColor: .primary,
                 title: "AI Workouts",
                 subtitle: "Personalized home & gym plans"
             )
@@ -396,7 +375,7 @@ struct DashboardView: View {
         NavigationLink(destination: DietPlannerView().onAppear { StreakManager.shared.recordAppUsage() }) {
             DashboardNavigationCard(
                 icon: "fork.knife",
-                iconGradient: [.green, .teal],
+                iconColor: .primary,
                 title: "AI Diet Planner",
                 subtitle: "AI-curated weekly meal plans"
             )
@@ -414,21 +393,11 @@ struct DashboardView: View {
     private var habitTrackerCard: some View {
         NavigationLink(destination: HabitTrackerView(viewModel: habitTrackerViewModel).onAppear { StreakManager.shared.recordAppUsage() }) {
             HStack(spacing: 16) {
-                ZStack {
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [.green, .mint],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 50, height: 50)
-                    
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 22))
-                        .foregroundStyle(.white)
-                }
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 24))
+                    .foregroundStyle(.primary)
+                    .frame(width: 50, height: 50)
+                    .glassEffect(.regular, in: Circle())
                 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Habits")
@@ -446,8 +415,9 @@ struct DashboardView: View {
                     .foregroundStyle(.tertiary)
             }
             .padding(GlassTokens.Padding.standard)
-            .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: GlassTokens.Radius.card, style: .continuous))
             .contentShape(RoundedRectangle(cornerRadius: GlassTokens.Radius.card, style: .continuous))
+            .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: GlassTokens.Radius.card, style: .continuous))
+            .animation(nil)
         }
         .buttonStyle(.plain)
         .onboardingTarget("dashboard.habits")
@@ -496,34 +466,25 @@ struct QuickStatCard: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 16)
-        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: GlassTokens.Radius.card, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: GlassTokens.Radius.card, style: .continuous))
+        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: GlassTokens.Radius.card, style: .continuous))
+        .animation(nil)
     }
 }
 
 struct DashboardNavigationCard: View {
     let icon: String
-    let iconGradient: [Color]
+    let iconColor: Color
     let title: String
     let subtitle: String
     
     var body: some View {
         HStack(spacing: 16) {
-            ZStack {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: iconGradient,
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 50, height: 50)
-                
-                Image(systemName: icon)
-                    .font(.system(size: 22))
-                    .foregroundStyle(.white)
-            }
+            Image(systemName: icon)
+                .font(.system(size: 24))
+                .foregroundStyle(iconColor)
+                .frame(width: 50, height: 50)
+                .glassEffect(.regular, in: Circle())
             
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
@@ -541,8 +502,9 @@ struct DashboardNavigationCard: View {
                 .foregroundStyle(.tertiary)
         }
         .padding(GlassTokens.Padding.standard)
-        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: GlassTokens.Radius.card, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: GlassTokens.Radius.card, style: .continuous))
+        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: GlassTokens.Radius.card, style: .continuous))
+        .animation(nil)
     }
 }
 

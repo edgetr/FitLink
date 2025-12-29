@@ -86,6 +86,7 @@ struct FitLinkApp: App {
         case .active:
             checkPendingGenerations()
             performHealthSyncIfNeeded()
+            FocusTimerManager.shared.processWidgetCommands()
             Task { @MainActor in
                 NotificationService.shared.clearBadge()
             }

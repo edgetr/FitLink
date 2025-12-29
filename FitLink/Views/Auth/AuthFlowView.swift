@@ -104,6 +104,7 @@ struct AuthFlowView: View {
                 .buttonStyle(.plain)
                 .glassEffect(selectedTab == tab ? .regular.interactive() : .clear)
                 .glassEffectID(tab, in: authNamespace)
+                .animation(nil)
             }
         }
         .sensoryFeedback(.selection, trigger: selectedTab)
