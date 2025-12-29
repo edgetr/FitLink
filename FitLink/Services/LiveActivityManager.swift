@@ -5,13 +5,12 @@ import WidgetKit
 import ActivityKit
 
 @available(iOS 16.1, *)
-final class LiveActivityManager: @unchecked Sendable {
+@MainActor
+final class LiveActivityManager {
     
     static let shared = LiveActivityManager()
     
     private var currentActivity: Activity<FitLinkLiveActivityAttributes>?
-    private var currentHabitId: String?
-    private var currentHabitName: String?
     
     private static let appGroupIdentifier = "group.com.edgetr.FitLink"
     private static let stateKey = "focusTimerState"
@@ -23,9 +22,13 @@ final class LiveActivityManager: @unchecked Sendable {
         currentActivity != nil && currentActivity?.activityState != .ended
     }
     
+    private var timerManager: FocusTimerManager {
+        FocusTimerManager.shared
+    }
+    
     // MARK: - Focus Activity
     
-    func startFocusActivity(habitId: String, habitName: String) {
+    func startFocusActivity() {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else {
             log("Live Activities are not enabled")
             return
@@ -33,19 +36,28 @@ final class LiveActivityManager: @unchecked Sendable {
         
         endCurrentActivity()
         
-        currentHabitId = habitId
-        currentHabitName = habitName
+        let habitId = timerManager.activeHabit?.id.uuidString ?? ""
+        let habitName = timerManager.activeHabit?.name ?? "Focus"
+        let habitIcon = timerManager.activeHabit?.icon ?? "brain.head.profile"
+        let totalSeconds = timerManager.totalSeconds
         
         let attributes = FitLinkLiveActivityAttributes(
             habitId: habitId,
-            habitName: habitName
+            habitName: habitName,
+            habitIcon: habitIcon
         )
         
-        let initialState = FitLinkLiveActivityAttributes.ContentState.initialFocusState()
+        let now = Date()
+        let initialState = FitLinkLiveActivityAttributes.ContentState.initialFocusState(
+            totalTime: totalSeconds,
+            startDate: now
+        )
+        
+        let staleDate = now.addingTimeInterval(TimeInterval(totalSeconds + 300))
         
         do {
             if #available(iOS 16.2, *) {
-                let content = ActivityContent(state: initialState, staleDate: nil)
+                let content = ActivityContent(state: initialState, staleDate: staleDate)
                 currentActivity = try Activity.request(
                     attributes: attributes,
                     content: content,
@@ -59,87 +71,64 @@ final class LiveActivityManager: @unchecked Sendable {
                 )
             }
             
-            writeSharedState(
-                isActive: true,
-                timeRemaining: 25 * 60,
-                timerState: .running
-            )
+            writeSharedState(timerState: .running)
             reloadWidgets()
             
-            log("Started Live Activity for habit: \(habitName)")
+            log("Started Live Activity for habit: \(habitName) with \(totalSeconds)s")
         } catch {
             log("Failed to start Live Activity: \(error.localizedDescription)")
         }
     }
     
-    func updateActivity(timeRemaining: Int, isRunning: Bool, isOnBreak: Bool) {
+    func updateActivity() {
         guard let activity = currentActivity else { return }
         
-        let timerState: FitLinkLiveActivityAttributes.TimerState
+        let timeRemaining = timerManager.remainingSeconds
+        let totalTime = timerManager.totalSeconds
+        let isRunning = !timerManager.isPaused
+        let isOnBreak = timerManager.isOnBreak
+        
+        let newState: FitLinkLiveActivityAttributes.ContentState
         let sharedTimerState: FocusTimerStateRaw
-        let emoji: String
         
         if timeRemaining <= 0 {
-            timerState = .finished
+            newState = .finishedState()
             sharedTimerState = .finished
-            emoji = "✅"
         } else if isOnBreak {
-            timerState = .breakTime
-            sharedTimerState = .breakTime
-            emoji = "☕️"
+            if isRunning {
+                newState = .runningState(
+                    timeRemaining: timeRemaining,
+                    totalTime: totalTime,
+                    isOnBreak: true
+                )
+            } else {
+                newState = .pausedState(timeRemaining: timeRemaining, totalTime: totalTime)
+            }
+            sharedTimerState = isRunning ? .breakTime : .paused
         } else if isRunning {
-            timerState = .running
+            newState = .runningState(
+                timeRemaining: timeRemaining,
+                totalTime: totalTime,
+                isOnBreak: false
+            )
             sharedTimerState = .running
-            emoji = "🧠"
         } else {
-            timerState = .paused
+            newState = .pausedState(timeRemaining: timeRemaining, totalTime: totalTime)
             sharedTimerState = .paused
-            emoji = "⏸️"
         }
         
-        let newState = FitLinkLiveActivityAttributes.ContentState(
-            timerState: timerState,
-            timeRemaining: max(0, timeRemaining),
-            emoji: emoji
-        )
+        let staleDate: Date? = timeRemaining > 0 ? Date().addingTimeInterval(TimeInterval(timeRemaining + 300)) : nil
         
         Task {
             if #available(iOS 16.2, *) {
-                let content = ActivityContent(state: newState, staleDate: nil)
+                let content = ActivityContent(state: newState, staleDate: staleDate)
                 await activity.update(content)
             } else {
                 await activity.update(using: newState)
             }
         }
         
-        writeSharedState(
-            isActive: timeRemaining > 0,
-            timeRemaining: timeRemaining,
-            timerState: sharedTimerState
-        )
-    }
-    
-    func startBreak(timeRemaining: Int = 5 * 60) {
-        guard let activity = currentActivity else { return }
-        
-        let breakState = FitLinkLiveActivityAttributes.ContentState.breakState(timeRemaining: timeRemaining)
-        
-        Task {
-            if #available(iOS 16.2, *) {
-                let content = ActivityContent(state: breakState, staleDate: nil)
-                await activity.update(content)
-            } else {
-                await activity.update(using: breakState)
-            }
-        }
-        
-        writeSharedState(
-            isActive: true,
-            timeRemaining: timeRemaining,
-            timerState: .breakTime
-        )
-        
-        log("Updated Live Activity to break state")
+        writeSharedState(timerState: sharedTimerState)
     }
     
     func endCurrentActivity() {
@@ -157,8 +146,6 @@ final class LiveActivityManager: @unchecked Sendable {
         }
         
         currentActivity = nil
-        currentHabitId = nil
-        currentHabitName = nil
         
         clearSharedState()
         reloadWidgets()
@@ -179,8 +166,6 @@ final class LiveActivityManager: @unchecked Sendable {
             }
         }
         currentActivity = nil
-        currentHabitId = nil
-        currentHabitName = nil
         
         clearSharedState()
         reloadWidgets()
@@ -202,15 +187,19 @@ final class LiveActivityManager: @unchecked Sendable {
     
     // MARK: - App Group Shared State
     
-    private func writeSharedState(isActive: Bool, timeRemaining: Int, timerState: FocusTimerStateRaw) {
+    private func writeSharedState(timerState: FocusTimerStateRaw) {
         guard let defaults = UserDefaults(suiteName: LiveActivityManager.appGroupIdentifier) else {
             return
         }
         
+        let timeRemaining = timerManager.remainingSeconds
+        let habitId = timerManager.activeHabit?.id.uuidString
+        let habitName = timerManager.activeHabit?.name ?? "Focus Session"
+        
         let state = SharedFocusTimerState(
-            isActive: isActive,
-            habitId: currentHabitId,
-            habitName: currentHabitName ?? "Focus Session",
+            isActive: timeRemaining > 0,
+            habitId: habitId,
+            habitName: habitName,
             timeRemaining: timeRemaining,
             timerState: timerState.rawValue,
             lastUpdated: Date()

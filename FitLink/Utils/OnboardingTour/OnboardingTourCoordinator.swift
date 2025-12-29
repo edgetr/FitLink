@@ -49,6 +49,7 @@ final class OnboardingTourCoordinator: ObservableObject {
     }
     
     func startFirstRunTourIfNeeded() {
+        guard !isShowingTour else { return }
         guard !onboardingManager.hasCompletedTour("first_run") else { return }
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in

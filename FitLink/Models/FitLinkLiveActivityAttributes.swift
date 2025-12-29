@@ -8,67 +8,92 @@ import ActivityKit
 @available(iOS 16.1, *)
 struct FitLinkLiveActivityAttributes: ActivityAttributes {
     
-    /// Dynamic state that updates during the Live Activity
     public struct ContentState: Codable, Hashable {
-        /// Current timer state
         var timerState: TimerState
-        /// Time remaining in seconds
         var timeRemaining: Int
-        /// Emoji to display in minimal Dynamic Island view
+        var totalTime: Int
         var emoji: String
         
-        /// Formatted time string (MM:SS)
+        // Date-based timer for real-time countdown via Text(timerInterval:)
+        var timerEndDate: Date?
+        var timerStartDate: Date?
+        
+        var timerRange: ClosedRange<Date>? {
+            guard let start = timerStartDate, let end = timerEndDate else { return nil }
+            guard start < end else { return nil }
+            return start...end
+        }
+        
         var formattedTime: String {
             let minutes = timeRemaining / 60
             let seconds = timeRemaining % 60
             return String(format: "%02d:%02d", minutes, seconds)
         }
         
-        /// Progress percentage (0.0 - 1.0)
         var progress: Double {
-            let totalTime: Double
-            switch timerState {
-            case .running, .paused, .finished:
-                totalTime = 25 * 60 // 25 minutes focus session
-            case .breakTime:
-                totalTime = 5 * 60 // 5 minutes break
-            }
-            return max(0, min(1, 1.0 - (Double(timeRemaining) / totalTime)))
+            guard totalTime > 0 else { return 0 }
+            return max(0, min(1, 1.0 - (Double(timeRemaining) / Double(totalTime))))
         }
         
-        /// Creates an initial running state for a focus session
-        static func initialFocusState() -> ContentState {
+        // MARK: - Factory Methods
+        
+        static func initialFocusState(totalTime: Int = 25 * 60, startDate: Date = Date()) -> ContentState {
             ContentState(
                 timerState: .running,
-                timeRemaining: 25 * 60,
-                emoji: "🧠"
+                timeRemaining: totalTime,
+                totalTime: totalTime,
+                emoji: "🧠",
+                timerEndDate: startDate.addingTimeInterval(TimeInterval(totalTime)),
+                timerStartDate: startDate
             )
         }
         
-        /// Creates a break state
-        static func breakState(timeRemaining: Int = 5 * 60) -> ContentState {
+        static func breakState(timeRemaining: Int = 5 * 60, startDate: Date = Date()) -> ContentState {
             ContentState(
                 timerState: .breakTime,
                 timeRemaining: timeRemaining,
-                emoji: "☕️"
+                totalTime: timeRemaining,
+                emoji: "☕️",
+                timerEndDate: startDate.addingTimeInterval(TimeInterval(timeRemaining)),
+                timerStartDate: startDate
             )
         }
         
-        /// Creates a paused state
-        static func pausedState(timeRemaining: Int) -> ContentState {
+        static func pausedState(timeRemaining: Int, totalTime: Int) -> ContentState {
             ContentState(
                 timerState: .paused,
                 timeRemaining: timeRemaining,
-                emoji: "⏸️"
+                totalTime: totalTime,
+                emoji: "⏸️",
+                timerEndDate: nil,
+                timerStartDate: nil
             )
         }
         
-        /// Creates a finished state
         static func finishedState() -> ContentState {
             ContentState(
                 timerState: .finished,
                 timeRemaining: 0,
-                emoji: "✅"
+                totalTime: 0,
+                emoji: "✅",
+                timerEndDate: nil,
+                timerStartDate: nil
+            )
+        }
+        
+        static func runningState(
+            timeRemaining: Int,
+            totalTime: Int,
+            isOnBreak: Bool = false,
+            startDate: Date = Date()
+        ) -> ContentState {
+            ContentState(
+                timerState: isOnBreak ? .breakTime : .running,
+                timeRemaining: timeRemaining,
+                totalTime: totalTime,
+                emoji: isOnBreak ? "☕️" : "🧠",
+                timerEndDate: startDate.addingTimeInterval(TimeInterval(timeRemaining)),
+                timerStartDate: startDate
             )
         }
     }
@@ -108,12 +133,10 @@ struct FitLinkLiveActivityAttributes: ActivityAttributes {
         }
     }
     
-    // MARK: - Static Properties (don't change during activity)
+    // MARK: - Static Properties
     
-    /// The habit ID being focused on
     var habitId: String
-    
-    /// The habit name for display
     var habitName: String
+    var habitIcon: String
 }
 #endif

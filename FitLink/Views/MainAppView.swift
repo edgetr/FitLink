@@ -21,6 +21,9 @@ struct MainAppView: View {
             MemoryToastOverlay()
                 .environmentObject(memoryToastManager)
         }
+        .onAppear {
+            _ = FocusTimerWindowController.shared
+        }
     }
 }
 

@@ -27,16 +27,35 @@ struct OnboardingTourOverlay: View {
             let targetRect = proxy[anchor]
             let expandedRect = targetRect.insetBy(dx: -8, dy: -8)
             
-            SpotlightShape(cutoutRect: expandedRect, cornerRadius: GlassTokens.Radius.card + 4)
-                .fill(style: FillStyle(eoFill: true))
-                .foregroundStyle(Color.black.opacity(0.7))
-                .onTapGesture {
-                    if step.completionRule == .tapTarget {
-                        coordinator.handleTargetTapped(step.targetElementID)
+            ZStack {
+                // Dark overlay with visual cutout
+                SpotlightShape(cutoutRect: expandedRect, cornerRadius: GlassTokens.Radius.card + 4)
+                    .fill(style: FillStyle(eoFill: true))
+                    .foregroundStyle(Color.black.opacity(0.7))
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        // Block taps outside the target area
                     }
-                }
+                
+                // Transparent hit-testing layer over the cutout to block/handle touches
+                RoundedRectangle(cornerRadius: GlassTokens.Radius.card + 4)
+                    .fill(Color.clear)
+                    .frame(width: expandedRect.width, height: expandedRect.height)
+                    .position(x: expandedRect.midX, y: expandedRect.midY)
+                    .contentShape(RoundedRectangle(cornerRadius: GlassTokens.Radius.card + 4))
+                    .onTapGesture {
+                        if step.completionRule == .tapTarget {
+                            coordinator.handleTargetTapped(step.targetElementID)
+                        }
+                        // Otherwise, touch is blocked (does nothing)
+                    }
+            }
         } else {
             Color.black.opacity(0.7)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    // Block all touches when no target found
+                }
         }
     }
     

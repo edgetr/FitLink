@@ -179,19 +179,20 @@ struct OnboardingView: View {
                 Button {
                     step.action()
                 } label: {
-                    Text(step.buttonText)
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(
-                            LinearGradient(
-                                colors: step.isAuthorized ? [.green, .mint] : step.iconGradient,
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                    Label {
+                        Text(step.buttonText)
+                    } icon: {
+                        if step.isAuthorized {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                    .font(.headline)
+                    .foregroundStyle(step.isAuthorized ? .green : step.iconGradient.first ?? .blue)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .contentShape(RoundedRectangle(cornerRadius: GlassTokens.Radius.card, style: .continuous))
+                    .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: GlassTokens.Radius.card, style: .continuous))
+                    .animation(nil)
                 }
                 .padding(.horizontal, 40)
                 .disabled(step.isPermissionStep && step.isAuthorized)

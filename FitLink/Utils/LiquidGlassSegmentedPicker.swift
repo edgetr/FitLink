@@ -12,6 +12,23 @@ struct LiquidGlassSegmentedPicker<T: Hashable>: View {
             let selectedIndex = options.firstIndex(where: { $0.0 == selection }) ?? 0
             
             ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(.ultraThinMaterial)
+                    .overlay(
+                        Capsule()
+                            .strokeBorder(
+                                LinearGradient(
+                                    colors: [
+                                        Color.white.opacity(colorScheme == .dark ? 0.15 : 0.4),
+                                        Color.white.opacity(colorScheme == .dark ? 0.05 : 0.15)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 1
+                            )
+                    )
+                
                 LiquidGlassIndicator(colorScheme: colorScheme)
                     .frame(width: segmentWidth - 8, height: geometry.size.height - 8)
                     .offset(x: CGFloat(selectedIndex) * segmentWidth + 4)
@@ -52,24 +69,16 @@ struct LiquidGlassSegmentedPicker<T: Hashable>: View {
 private struct LiquidGlassIndicator: View {
     let colorScheme: ColorScheme
     
-    private var blueTint: Color {
-        colorScheme == .dark ? Color.blue.opacity(0.3) : Color.blue.opacity(0.18)
-    }
-    
     var body: some View {
         Capsule()
             .fill(.regularMaterial)
             .overlay(
                 Capsule()
-                    .fill(blueTint)
-            )
-            .overlay(
-                Capsule()
                     .fill(
                         LinearGradient(
                             colors: [
-                                Color.white.opacity(colorScheme == .dark ? 0.25 : 0.8),
-                                Color.white.opacity(colorScheme == .dark ? 0.08 : 0.25),
+                                Color.white.opacity(colorScheme == .dark ? 0.2 : 0.7),
+                                Color.white.opacity(colorScheme == .dark ? 0.05 : 0.2),
                                 Color.clear
                             ],
                             startPoint: .top,
@@ -82,18 +91,17 @@ private struct LiquidGlassIndicator: View {
                     .strokeBorder(
                         LinearGradient(
                             colors: [
-                                Color.white.opacity(colorScheme == .dark ? 0.4 : 0.95),
-                                Color.white.opacity(colorScheme == .dark ? 0.15 : 0.4),
-                                Color.blue.opacity(0.2)
+                                Color.white.opacity(colorScheme == .dark ? 0.35 : 0.9),
+                                Color.white.opacity(colorScheme == .dark ? 0.1 : 0.3)
                             ],
                             startPoint: .top,
                             endPoint: .bottom
                         ),
-                        lineWidth: 1.5
+                        lineWidth: 1
                     )
             )
-            .shadow(color: Color.blue.opacity(0.15), radius: 8, x: 0, y: 4)
-            .shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 1)
+            .shadow(color: Color.black.opacity(0.15), radius: 6, x: 0, y: 3)
+            .shadow(color: Color.black.opacity(0.08), radius: 2, x: 0, y: 1)
     }
 }
 

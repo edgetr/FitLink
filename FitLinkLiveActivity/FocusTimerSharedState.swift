@@ -58,6 +58,32 @@ struct FocusTimerSharedState: Codable {
     static let stateKey = "focusTimerState"
     static let commandKey = "focusTimerCommand"
     
+    private enum CodingKeys: String, CodingKey {
+        case isActive, habitId, habitName, timeRemaining, timerState, lastUpdated
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        isActive = try container.decode(Bool.self, forKey: .isActive)
+        habitId = try container.decodeIfPresent(String.self, forKey: .habitId)
+        habitName = try container.decode(String.self, forKey: .habitName)
+        timeRemaining = try container.decode(Int.self, forKey: .timeRemaining)
+        lastUpdated = try container.decode(Date.self, forKey: .lastUpdated)
+        
+        let timerStateString = try container.decode(String.self, forKey: .timerState)
+        timerState = FocusTimerState(rawValue: timerStateString) ?? .running
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(isActive, forKey: .isActive)
+        try container.encodeIfPresent(habitId, forKey: .habitId)
+        try container.encode(habitName, forKey: .habitName)
+        try container.encode(timeRemaining, forKey: .timeRemaining)
+        try container.encode(timerState.rawValue, forKey: .timerState)
+        try container.encode(lastUpdated, forKey: .lastUpdated)
+    }
+    
     static func read() -> FocusTimerSharedState? {
         guard let defaults = UserDefaults(suiteName: appGroupIdentifier),
               let data = defaults.data(forKey: stateKey) else {

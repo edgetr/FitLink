@@ -8,6 +8,7 @@
 import ActivityKit
 import WidgetKit
 import SwiftUI
+import AppIntents
 
 // FitLinkLiveActivityAttributes is defined in FitLink/Models/FitLinkLiveActivityAttributes.swift
 // That file must be added to the FitLinkLiveActivityExtension target in Xcode.
@@ -35,26 +36,99 @@ struct FitLinkLiveActivityLiveActivity: Widget {
                     }
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    VStack(alignment: .trailing) {
-                        Text(context.state.formattedTime)
-                            .font(.title2.monospacedDigit())
-                            .fontWeight(.bold)
+                    VStack(alignment: .trailing, spacing: 4) {
+                        if let range = context.state.timerRange, context.state.timerState == .running || context.state.timerState == .breakTime {
+                            Text(timerInterval: range, countsDown: true)
+                                .font(.title2.monospacedDigit())
+                                .fontWeight(.bold)
+                                .contentTransition(.numericText())
+                        } else {
+                            Text(context.state.formattedTime)
+                                .font(.title2.monospacedDigit())
+                                .fontWeight(.bold)
+                        }
                         Text(context.state.timerState.displayName)
                             .font(.caption)
                     }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    ProgressView(value: context.state.progress)
-                        .tint(timerColor(for: context.state.timerState))
-                        .padding(.horizontal)
+                    HStack(spacing: 12) {
+                        ProgressView(value: context.state.progress)
+                            .tint(timerColor(for: context.state.timerState))
+                        
+                        if #available(iOS 17.0, *) {
+                            HStack(spacing: 12) {
+                                if context.state.timerState == .running || context.state.timerState == .breakTime {
+                                    Button(intent: PauseFocusSessionIntent()) {
+                                        Image(systemName: "pause.fill")
+                                            .font(.system(size: 16, weight: .semibold))
+                                            .foregroundStyle(.orange)
+                                            .frame(width: 36, height: 36)
+                                            .background(
+                                                Circle()
+                                                    .fill(.ultraThinMaterial)
+                                            )
+                                            .overlay(
+                                                Circle()
+                                                    .stroke(Color.orange.opacity(0.3), lineWidth: 1)
+                                            )
+                                    }
+                                    .buttonStyle(.plain)
+                                } else if context.state.timerState == .paused {
+                                    Button(intent: ResumeFocusSessionIntent()) {
+                                        Image(systemName: "play.fill")
+                                            .font(.system(size: 16, weight: .semibold))
+                                            .foregroundStyle(.green)
+                                            .frame(width: 36, height: 36)
+                                            .background(
+                                                Circle()
+                                                    .fill(.ultraThinMaterial)
+                                            )
+                                            .overlay(
+                                                Circle()
+                                                    .stroke(Color.green.opacity(0.3), lineWidth: 1)
+                                            )
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                                
+                                Button(intent: EndFocusSessionIntent()) {
+                                    Image(systemName: "stop.fill")
+                                        .font(.system(size: 16, weight: .semibold))
+                                        .foregroundStyle(.red)
+                                        .frame(width: 36, height: 36)
+                                        .background(
+                                            Circle()
+                                                .fill(.ultraThinMaterial)
+                                        )
+                                        .overlay(
+                                            Circle()
+                                                .stroke(Color.red.opacity(0.3), lineWidth: 1)
+                                        )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 4)
                 }
             } compactLeading: {
                 Image(systemName: context.state.timerState.icon)
                     .foregroundColor(timerColor(for: context.state.timerState))
+                    .font(.caption2)
             } compactTrailing: {
-                Text(context.state.formattedTime)
-                    .font(.caption.monospacedDigit())
-                    .fontWeight(.semibold)
+                if let range = context.state.timerRange, context.state.timerState == .running || context.state.timerState == .breakTime {
+                    Text(timerInterval: range, countsDown: true)
+                        .font(.caption2.monospacedDigit())
+                        .fontWeight(.medium)
+                        .contentTransition(.numericText())
+                        .frame(minWidth: 40)
+                } else {
+                    Text(context.state.formattedTime)
+                        .font(.caption2.monospacedDigit())
+                        .fontWeight(.medium)
+                        .frame(minWidth: 40)
+                }
             } minimal: {
                 Text(context.state.emoji)
             }
@@ -80,7 +154,6 @@ struct LockScreenView: View {
     
     var body: some View {
         HStack(spacing: 16) {
-            // Timer icon
             Image(systemName: context.state.timerState.icon)
                 .font(.largeTitle)
                 .foregroundColor(.white)
@@ -97,10 +170,16 @@ struct LockScreenView: View {
             
             Spacer()
             
-            // Time remaining
-            Text(context.state.formattedTime)
-                .font(.system(size: 32, weight: .bold, design: .monospaced))
-                .foregroundColor(.white)
+            if let range = context.state.timerRange, context.state.timerState == .running || context.state.timerState == .breakTime {
+                Text(timerInterval: range, countsDown: true)
+                    .font(.system(size: 32, weight: .bold, design: .monospaced))
+                    .foregroundColor(.white)
+                    .contentTransition(.numericText())
+            } else {
+                Text(context.state.formattedTime)
+                    .font(.system(size: 32, weight: .bold, design: .monospaced))
+                    .foregroundColor(.white)
+            }
         }
         .padding()
     }
@@ -110,17 +189,21 @@ struct LockScreenView: View {
 
 extension FitLinkLiveActivityAttributes {
     fileprivate static var preview: FitLinkLiveActivityAttributes {
-        FitLinkLiveActivityAttributes(habitId: "preview", habitName: "Focus Session")
+        FitLinkLiveActivityAttributes(
+            habitId: "preview",
+            habitName: "Focus Session",
+            habitIcon: "brain.head.profile"
+        )
     }
 }
 
 extension FitLinkLiveActivityAttributes.ContentState {
     fileprivate static var running: FitLinkLiveActivityAttributes.ContentState {
-        .initialFocusState()
+        .initialFocusState(totalTime: 25 * 60)
     }
     
     fileprivate static var paused: FitLinkLiveActivityAttributes.ContentState {
-        .pausedState(timeRemaining: 15 * 60)
+        .pausedState(timeRemaining: 15 * 60, totalTime: 25 * 60)
     }
     
     fileprivate static var onBreak: FitLinkLiveActivityAttributes.ContentState {
