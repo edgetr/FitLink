@@ -60,6 +60,11 @@ final class AppLogger {
     private var loggers: [Category: Logger] = [:]
     private let loggersLock = NSLock()
     
+    private static let logDateFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        return formatter
+    }()
+    
     // MARK: - Initialization
     
     private init() {}
@@ -78,7 +83,7 @@ final class AppLogger {
         let redactedMessage = redact(message)
         
         #if DEBUG
-        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let timestamp = Self.logDateFormatter.string(from: Date())
         let filename = (file as NSString).lastPathComponent
         print("[\(timestamp)] [\(category.rawValue)] [\(level.rawValue)] \(redactedMessage) (\(filename):\(line))")
         #endif

@@ -47,6 +47,9 @@ class WorkoutsViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private let maxRetryAttempts = 3
     
+    /// Stored observer token for proper cleanup - block-based observers MUST be stored and explicitly removed
+    private var notificationObserver: NSObjectProtocol?
+    
     var userId: String? {
         didSet {
             if userId != nil {
@@ -96,7 +99,7 @@ class WorkoutsViewModel: ObservableObject {
     }
     
     private func setupNotificationObservers() {
-        NotificationCenter.default.addObserver(
+        notificationObserver = NotificationCenter.default.addObserver(
             forName: .planGenerationCompleted,
             object: nil,
             queue: .main
@@ -142,7 +145,9 @@ class WorkoutsViewModel: ObservableObject {
     }
     
     deinit {
-        NotificationCenter.default.removeObserver(self)
+        if let observer = notificationObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
     
     func loadAllPlansForUser() async {
@@ -770,44 +775,64 @@ class WorkoutsViewModel: ObservableObject {
     }
     
     private func saveConversationState() {
-        if let data = try? JSONEncoder().encode(chatMessages) {
-            UserDefaults.standard.set(data, forKey: PersistenceKeys.chatMessages)
-        }
-        UserDefaults.standard.set(currentGenerationId, forKey: PersistenceKeys.generationId)
-        UserDefaults.standard.set(preferences, forKey: PersistenceKeys.preferences)
-        UserDefaults.standard.set(readySummary, forKey: PersistenceKeys.readySummary)
-        UserDefaults.standard.set(flowState == .readyToGenerate, forKey: PersistenceKeys.isReady)
-        UserDefaults.standard.set(flowState == .generatingPlan, forKey: PersistenceKeys.isGenerating)
+        let messages = chatMessages
+        let generationId = currentGenerationId
+        let prefs = preferences
+        let summary = readySummary
+        let isReady = flowState == .readyToGenerate
+        let isGenerating = flowState == .generatingPlan
+        let selection = planSelection
         
-        if let selection = planSelection {
-            UserDefaults.standard.set(selection.rawValue, forKey: PersistenceKeys.planSelection)
+        Task.detached(priority: .utility) {
+            if let data = try? JSONEncoder().encode(messages) {
+                UserDefaults.standard.set(data, forKey: PersistenceKeys.chatMessages)
+            }
+            UserDefaults.standard.set(generationId, forKey: PersistenceKeys.generationId)
+            UserDefaults.standard.set(prefs, forKey: PersistenceKeys.preferences)
+            UserDefaults.standard.set(summary, forKey: PersistenceKeys.readySummary)
+            UserDefaults.standard.set(isReady, forKey: PersistenceKeys.isReady)
+            UserDefaults.standard.set(isGenerating, forKey: PersistenceKeys.isGenerating)
+            
+            if let selection = selection {
+                UserDefaults.standard.set(selection.rawValue, forKey: PersistenceKeys.planSelection)
+            }
         }
     }
     
     private func restoreConversationState() {
-        if let data = UserDefaults.standard.data(forKey: PersistenceKeys.chatMessages),
-           let messages = try? JSONDecoder().decode([ChatMessage].self, from: data) {
-            chatMessages = messages
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let data = UserDefaults.standard.data(forKey: PersistenceKeys.chatMessages),
+                  let messages = try? JSONDecoder().decode([ChatMessage].self, from: data),
+                  !messages.isEmpty else {
+                return
+            }
             
-            if !messages.isEmpty {
-                currentGenerationId = UserDefaults.standard.string(forKey: PersistenceKeys.generationId)
-                preferences = UserDefaults.standard.string(forKey: PersistenceKeys.preferences) ?? ""
-                readySummary = UserDefaults.standard.string(forKey: PersistenceKeys.readySummary)
+            let generationId = UserDefaults.standard.string(forKey: PersistenceKeys.generationId)
+            let preferences = UserDefaults.standard.string(forKey: PersistenceKeys.preferences) ?? ""
+            let readySummary = UserDefaults.standard.string(forKey: PersistenceKeys.readySummary)
+            let selectionRaw = UserDefaults.standard.string(forKey: PersistenceKeys.planSelection)
+            let isGenerating = UserDefaults.standard.bool(forKey: PersistenceKeys.isGenerating)
+            let isReady = UserDefaults.standard.bool(forKey: PersistenceKeys.isReady)
+            
+            await MainActor.run {
+                guard let self = self else { return }
                 
-                if let selectionRaw = UserDefaults.standard.string(forKey: PersistenceKeys.planSelection),
+                self.chatMessages = messages
+                self.currentGenerationId = generationId
+                self.preferences = preferences
+                self.readySummary = readySummary
+                
+                if let selectionRaw = selectionRaw,
                    let selection = PlanSelection(rawValue: selectionRaw) {
-                    planSelection = selection
+                    self.planSelection = selection
                 }
                 
-                let isGenerating = UserDefaults.standard.bool(forKey: PersistenceKeys.isGenerating)
-                let isReady = UserDefaults.standard.bool(forKey: PersistenceKeys.isReady)
-                
                 if isGenerating {
-                    flowState = .generatingPlan
+                    self.flowState = .generatingPlan
                 } else if isReady {
-                    flowState = .readyToGenerate
+                    self.flowState = .readyToGenerate
                 } else {
-                    flowState = .conversing
+                    self.flowState = .conversing
                 }
             }
         }

@@ -271,57 +271,137 @@ final class WatchConnectivityService: NSObject, ObservableObject {
             
         case .requestSync:
             await pushStateToWatch()
+            
+        case .submitPairingCode:
+            if let code = payload.pairingCode {
+                handlePairingCodeSubmission(code)
+            }
         }
     }
     
+    private func handlePairingCodeSubmission(_ code: String) {
+        let isValid = WatchPairingService.shared.validateCode(code)
+        if !isValid {
+            sendPairingDenied()
+        }
+    }
+    
+    func sendPairingConfirmation() async {
+        guard let session = session, session.isReachable else {
+            log("Cannot send pairing confirmation - Watch not reachable")
+            return
+        }
+        
+        let payload = PhoneToWatchPayload(command: .pairingConfirmed)
+        guard let dict = payload.toDictionary() else { return }
+        
+        session.sendMessage(["phoneCommand": dict], replyHandler: nil) { [weak self] error in
+            Task { @MainActor in
+                self?.log("Failed to send pairing confirmation: \(error.localizedDescription)")
+            }
+        }
+        
+        await pushStateToWatch()
+        log("Pairing confirmation sent to Watch")
+    }
+    
+    func sendPairingDenied() {
+        guard let session = session, session.isReachable else { return }
+        
+        let payload = PhoneToWatchPayload(command: .pairingDenied)
+        guard let dict = payload.toDictionary() else { return }
+        
+        session.sendMessage(["phoneCommand": dict], replyHandler: nil, errorHandler: nil)
+        log("Pairing denied sent to Watch")
+    }
+    
+    func sendUnpairCommand() {
+        guard let session = session, session.isReachable else { return }
+        
+        let payload = PhoneToWatchPayload(command: .unpair)
+        guard let dict = payload.toDictionary() else { return }
+        
+        session.sendMessage(["phoneCommand": dict], replyHandler: nil, errorHandler: nil)
+        log("Unpair command sent to Watch")
+    }
+    
     private func startTimerForHabit(id: String, duration: Int?) async {
-        guard let uuid = UUID(uuidString: id) else { return }
+        guard let userId = SessionManager.shared.currentUserID else { return }
         
         do {
-            let userId = SessionManager.shared.currentUserID
-            let habits = try await HabitStore.shared.loadHabits(userId: userId)
-            
-            if let habit = habits.first(where: { $0.id == uuid }) {
-                if let duration = duration {
-                    FocusTimerManager.shared.startTimer(for: habit, durationMinutes: duration)
-                } else {
-                    FocusTimerManager.shared.startTimer(for: habit)
-                }
-                log("Started timer for habit: \(habit.name)")
+            guard let habit = try await HabitFirestoreService.shared.loadHabit(byId: id, userId: userId) else {
+                log("Habit not found: \(id)")
+                return
             }
+            
+            if let duration = duration {
+                FocusTimerManager.shared.startTimer(for: habit, durationMinutes: duration)
+            } else {
+                FocusTimerManager.shared.startTimer(for: habit)
+            }
+            log("Started timer for habit: \(habit.name)")
         } catch {
             log("Failed to start timer: \(error.localizedDescription)")
         }
     }
     
     private func toggleHabitCompletion(id: String, complete: Bool) async {
-        guard let uuid = UUID(uuidString: id) else { return }
+        guard let uuid = UUID(uuidString: id),
+              let userId = SessionManager.shared.currentUserID else { return }
         
         do {
-            let userId = SessionManager.shared.currentUserID
-            var habits = try await HabitStore.shared.loadHabits(userId: userId)
+            _ = try await HabitFirestoreService.shared.toggleHabitCompletion(
+                habitId: id,
+                userId: userId,
+                date: Date()
+            )
             
-            guard let index = habits.firstIndex(where: { $0.id == uuid }) else { return }
+            let habits = try await HabitFirestoreService.shared.loadHabits(userId: userId)
+            guard let habit = habits.first(where: { $0.id == uuid }) else { return }
             
-            let today = Calendar.current.startOfDay(for: Date())
-            let isCurrentlyCompleted = habits[index].completionDates.contains { date in
-                Calendar.current.startOfDay(for: date) == today
+            if complete {
+                log("Completed habit: \(habit.name)")
+            } else {
+                log("Uncompleted habit: \(habit.name)")
             }
             
-            if complete && !isCurrentlyCompleted {
-                habits[index].completionDates.append(today)
-                log("Completed habit: \(habits[index].name)")
-            } else if !complete && isCurrentlyCompleted {
-                habits[index].completionDates.removeAll { date in
-                    Calendar.current.startOfDay(for: date) == today
-                }
-                log("Uncompleted habit: \(habits[index].name)")
-            }
-            
-            try await HabitStore.shared.saveHabits(habits, userId: userId)
             await pushStateToWatch()
         } catch {
             log("Failed to toggle habit: \(error.localizedDescription)")
+        }
+    }
+    
+    private func saveFocusSession(wasCompleted: Bool) {
+        let manager = FocusTimerManager.shared
+        
+        guard let userId = SessionManager.shared.currentUserID,
+              let habit = manager.activeHabit,
+              let sessionStartTime = manager.sessionStartTime else {
+            return
+        }
+        
+        let elapsedSeconds = manager.totalSeconds - manager.remainingSeconds
+        guard elapsedSeconds > 0 else { return }
+        
+        let session = FocusSession(
+            id: UUID().uuidString,
+            userId: userId,
+            habitId: habit.id.uuidString,
+            habitName: habit.name,
+            habitIcon: habit.icon,
+            startedAt: sessionStartTime,
+            endedAt: Date(),
+            durationSeconds: elapsedSeconds,
+            wasCompleted: wasCompleted
+        )
+        
+        Task {
+            do {
+                try await FocusSessionService.shared.saveSession(session, userId: userId)
+                log("Saved focus session from watch: \(session.durationMinutes)min, completed: \(session.wasCompleted)")
+            } catch {
+                log("Failed to save focus session from watch: \(error.localizedDescription)")
+            }
         }
     }
     

@@ -99,6 +99,29 @@ var body: some View {
                 Text(healthStorageSettings.policy.description)
             }
             
+            // MARK: - Devices Section
+            Section {
+                NavigationLink(destination: WatchPairingView()) {
+                    HStack {
+                        Label("Apple Watch", systemImage: "applewatch")
+                        Spacer()
+                        if WatchPairingService.shared.isPaired {
+                            Text("Paired")
+                                .font(.subheadline)
+                                .foregroundStyle(.green)
+                        } else {
+                            Text("Not Paired")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            } header: {
+                Text("Devices")
+            } footer: {
+                Text("Pair your Apple Watch to sync habits, workouts, and health data.")
+            }
+            
             // MARK: - Personalization Section
             Section {
                 NavigationLink(destination: MemoriesView()) {
@@ -212,7 +235,9 @@ var body: some View {
         .alert("Sign Out", isPresented: $showSignOutAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Sign Out", role: .destructive) {
-                try? sessionManager.signOut()
+                Task {
+                    try? await sessionManager.signOut()
+                }
             }
         } message: {
             Text("Are you sure you want to sign out?")

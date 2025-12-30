@@ -8,10 +8,15 @@ struct ContentView: View {
     
     var body: some View {
         Group {
-            if sessionManager.isLoggedIn {
-                mainTabView
-            } else {
-                WatchNotLoggedInView()
+            switch sessionManager.pairingState {
+            case .paired:
+                if sessionManager.isLoggedIn {
+                    mainTabView
+                } else {
+                    WatchNotLoggedInView()
+                }
+            case .notPaired, .waitingForConfirmation, .denied:
+                WatchPairingView()
             }
         }
     }

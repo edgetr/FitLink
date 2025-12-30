@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import FirebaseFirestore
 
 // MARK: - Habit Category
 
@@ -251,7 +252,95 @@ struct Habit: Identifiable, Codable, Hashable {
     }
 }
 
-// MARK: - Habit Extension for AI Suggestions
+// MARK: - Habit Extension for Firestore
+
+extension Habit {
+    enum FirestoreKeys: String, CodingKey {
+        case id, name, created_at, end_date, completion_dates
+        case icon, category, suggested_duration_minutes, preferred_time
+        case reminder_time, notes, is_ai_generated, motivational_tip
+        case current_streak, best_streak
+    }
+
+    nonisolated func toDictionary() -> [String: Any] {
+        var dict: [String: Any] = [
+            FirestoreKeys.id.rawValue: id.uuidString,
+            FirestoreKeys.name.rawValue: name,
+            FirestoreKeys.created_at.rawValue: Timestamp(date: createdAt),
+            FirestoreKeys.completion_dates.rawValue: completionDates.map { Timestamp(date: $0) },
+            FirestoreKeys.icon.rawValue: icon,
+            FirestoreKeys.category.rawValue: category.rawValue,
+            FirestoreKeys.suggested_duration_minutes.rawValue: suggestedDurationMinutes,
+            FirestoreKeys.preferred_time.rawValue: preferredTime.rawValue,
+            FirestoreKeys.is_ai_generated.rawValue: isAIGenerated,
+            FirestoreKeys.current_streak.rawValue: currentStreak,
+            FirestoreKeys.best_streak.rawValue: longestStreak
+        ]
+
+        if let endDate = endDate {
+            dict[FirestoreKeys.end_date.rawValue] = Timestamp(date: endDate)
+        }
+        if let reminderTime = reminderTime {
+            dict[FirestoreKeys.reminder_time.rawValue] = Timestamp(date: reminderTime)
+        }
+        if let notes = notes {
+            dict[FirestoreKeys.notes.rawValue] = notes
+        }
+        if let motivationalTip = motivationalTip {
+            dict[FirestoreKeys.motivational_tip.rawValue] = motivationalTip
+        }
+
+        return dict
+    }
+
+    static nonisolated func fromDictionary(_ data: [String: Any], id: String) -> Habit? {
+        guard let name = data[FirestoreKeys.name.rawValue] as? String,
+              let createdAtTimestamp = data[FirestoreKeys.created_at.rawValue] as? Timestamp,
+              let completionDatesTimestamps = data[FirestoreKeys.completion_dates.rawValue] as? [Timestamp],
+              let icon = data[FirestoreKeys.icon.rawValue] as? String,
+              let categoryRaw = data[FirestoreKeys.category.rawValue] as? String,
+              let category = HabitCategory(rawValue: categoryRaw),
+              let suggestedDuration = data[FirestoreKeys.suggested_duration_minutes.rawValue] as? Int,
+              let preferredTimeRaw = data[FirestoreKeys.preferred_time.rawValue] as? String,
+              let preferredTime = HabitTimeOfDay(rawValue: preferredTimeRaw) else {
+            return nil
+        }
+
+        let uuid = UUID(uuidString: id) ?? UUID()
+        let createdAt = createdAtTimestamp.dateValue()
+        let completionDates = completionDatesTimestamps.map { $0.dateValue() }
+        let isAIGenerated = data[FirestoreKeys.is_ai_generated.rawValue] as? Bool ?? false
+
+        var endDate: Date?
+        if let endDateTimestamp = data[FirestoreKeys.end_date.rawValue] as? Timestamp {
+            endDate = endDateTimestamp.dateValue()
+        }
+
+        var reminderTime: Date?
+        if let reminderTimestamp = data[FirestoreKeys.reminder_time.rawValue] as? Timestamp {
+            reminderTime = reminderTimestamp.dateValue()
+        }
+
+        let notes = data[FirestoreKeys.notes.rawValue] as? String
+        let motivationalTip = data[FirestoreKeys.motivational_tip.rawValue] as? String
+
+        return Habit(
+            id: uuid,
+            name: name,
+            createdAt: createdAt,
+            endDate: endDate,
+            completionDates: completionDates,
+            icon: icon,
+            category: category,
+            suggestedDurationMinutes: suggestedDuration,
+            preferredTime: preferredTime,
+            reminderTime: reminderTime,
+            notes: notes,
+            isAIGenerated: isAIGenerated,
+            motivationalTip: motivationalTip
+        )
+    }
+}
 
 extension Habit {
     /// Create a habit from an AI suggestion

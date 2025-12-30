@@ -278,18 +278,53 @@ enum WatchCommand: String, Codable {
     case completeHabit = "complete_habit"
     case uncompleteHabit = "uncomplete_habit"
     case requestSync = "request_sync"
+    case submitPairingCode = "submit_pairing_code"
+}
+
+enum PhoneToWatchCommand: String, Codable {
+    case pairingConfirmed = "pairing_confirmed"
+    case pairingDenied = "pairing_denied"
+    case unpair = "unpair"
+}
+
+struct PhoneToWatchPayload: Codable {
+    let command: PhoneToWatchCommand
+    let timestamp: Date
+    
+    init(command: PhoneToWatchCommand) {
+        self.command = command
+        self.timestamp = Date()
+    }
+    
+    func toDictionary() -> [String: Any]? {
+        guard let data = try? JSONEncoder().encode(self),
+              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return dict
+    }
+    
+    static func from(dictionary: [String: Any]) -> PhoneToWatchPayload? {
+        guard let data = try? JSONSerialization.data(withJSONObject: dictionary),
+              let payload = try? JSONDecoder().decode(PhoneToWatchPayload.self, from: data) else {
+            return nil
+        }
+        return payload
+    }
 }
 
 struct WatchCommandPayload: Codable {
     let command: WatchCommand
     let habitId: String?
     let durationMinutes: Int?
+    let pairingCode: String?
     let timestamp: Date
     
-    init(command: WatchCommand, habitId: String? = nil, durationMinutes: Int? = nil) {
+    init(command: WatchCommand, habitId: String? = nil, durationMinutes: Int? = nil, pairingCode: String? = nil) {
         self.command = command
         self.habitId = habitId
         self.durationMinutes = durationMinutes
+        self.pairingCode = pairingCode
         self.timestamp = Date()
     }
     
