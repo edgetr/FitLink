@@ -279,12 +279,17 @@ final class WatchConnectivityService: NSObject, ObservableObject {
         }
     }
     
-    private func handlePairingCodeSubmission(_ code: String) {
-        let isValid = WatchPairingService.shared.validateCode(code)
-        if !isValid {
-            sendPairingDenied()
-        }
+
+private func handlePairingCodeSubmission(_ code: String) {
+    let isValid = WatchPairingService.shared.validateCode(code)
+    if isValid {
+        // Notify Watch that code was validated and confirmed
+        sendPairingConfirmed()
+    } else {
+        sendPairingDenied()
     }
+}
+
     
     func sendPairingConfirmation() async {
         guard let session = session, session.isReachable else {
