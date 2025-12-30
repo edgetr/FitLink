@@ -68,7 +68,7 @@ final class SettingsViewModel: ObservableObject {
         do {
             try await memoryService.deleteAllMemories(userId: userId)
             try await userService.deleteUser(userId)
-            try sessionManager.signOut()
+            try await sessionManager.signOut()
             isDeletingAccount = false
             return true
         } catch {

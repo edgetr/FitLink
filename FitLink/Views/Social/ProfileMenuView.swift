@@ -83,7 +83,9 @@ struct ProfileMenuView: View {
         .alert("Sign Out", isPresented: $showSignOutAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Sign Out", role: .destructive) {
-                try? sessionManager.signOut()
+                Task {
+                    try? await sessionManager.signOut()
+                }
             }
         } message: {
             Text("Are you sure you want to sign out?")

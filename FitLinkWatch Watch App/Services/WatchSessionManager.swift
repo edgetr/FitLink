@@ -17,6 +17,14 @@ final class WatchSessionManager: NSObject, ObservableObject {
     @Published private(set) var workoutPlans: [WorkoutPlanSyncData] = []
     @Published private(set) var isPhoneReachable: Bool = false
     @Published private(set) var lastSyncDate: Date?
+    @Published private(set) var pairingState: PairingState = .notPaired
+    
+    enum PairingState: Equatable {
+        case notPaired
+        case waitingForConfirmation
+        case paired
+        case denied
+    }
     
     var isLoggedIn: Bool { userAuth.isLoggedIn }
     
@@ -73,6 +81,25 @@ final class WatchSessionManager: NSObject, ObservableObject {
         lastSyncDate = payload.timestamp
     }
     
+    private func handlePhoneCommand(_ payload: PhoneToWatchPayload) {
+        switch payload.command {
+        case .pairingConfirmed:
+            pairingState = .paired
+            log("Pairing confirmed")
+            requestSync()
+            
+        case .pairingDenied:
+            pairingState = .denied
+            log("Pairing denied")
+            
+        case .unpair:
+            pairingState = .notPaired
+            log("Unpaired")
+            habits = []
+            userAuth = .notLoggedIn
+        }
+    }
+    
     private func startLocalTimerIfNeeded() {
         localTimerCancellable?.cancel()
         
@@ -105,11 +132,12 @@ final class WatchSessionManager: NSObject, ObservableObject {
             }
     }
     
-    func sendCommand(_ command: WatchCommand, habitId: String? = nil, durationMinutes: Int? = nil) {
+    func sendCommand(_ command: WatchCommand, habitId: String? = nil, durationMinutes: Int? = nil, pairingCode: String? = nil) {
         let payload = WatchCommandPayload(
             command: command,
             habitId: habitId,
-            durationMinutes: durationMinutes
+            durationMinutes: durationMinutes,
+            pairingCode: pairingCode
         )
         
         guard let session = session,
@@ -131,11 +159,15 @@ final class WatchSessionManager: NSObject, ObservableObject {
         session?.sendMessage(["command": dict], replyHandler: { [weak self] response in
             Task { @MainActor in
                 self?.log("Command acknowledged: \(payload.command.rawValue)")
+                if payload.command == .submitPairingCode {
+                    self?.log("Pairing code sent successfully, waiting for confirmation...")
+                }
             }
         }, errorHandler: { [weak self] error in
             Task { @MainActor in
                 self?.log("Command failed: \(error.localizedDescription)")
-                self?.queueCommand(payload)
+                self?.log("Trying transferUserInfo as fallback...")
+                self?.sendUserInfoTransfer(payload)
             }
         })
     }
@@ -176,6 +208,15 @@ final class WatchSessionManager: NSObject, ObservableObject {
     
     func requestSync() {
         sendCommand(.requestSync)
+    }
+    
+    func submitPairingCode(_ code: String) {
+        pairingState = .waitingForConfirmation
+        sendCommand(.submitPairingCode, pairingCode: code)
+    }
+    
+    func resetPairingState() {
+        pairingState = .notPaired
     }
     
     func startTimer(for habit: HabitSyncData) {
@@ -323,6 +364,21 @@ extension WatchSessionManager: WCSessionDelegate {
                 applyPayload(payload)
                 cacheState(payload)
                 log("Received message with payload")
+            } else if let dict = message["phoneCommand"] as? [String: Any],
+                      let payload = PhoneToWatchPayload.from(dictionary: dict) {
+                handlePhoneCommand(payload)
+            }
+        }
+    }
+    
+    nonisolated func session(
+        _ session: WCSession,
+        didReceiveUserInfo userInfo: [String: Any]
+    ) {
+        Task { @MainActor in
+            if let dict = userInfo["phoneCommand"] as? [String: Any],
+               let payload = PhoneToWatchPayload.from(dictionary: dict) {
+                handlePhoneCommand(payload)
             }
         }
     }

@@ -1,6 +1,10 @@
 import Foundation
 import Combine
 
+#if canImport(FirebaseFirestore)
+import FirebaseFirestore
+#endif
+
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -25,6 +29,7 @@ final class FocusTimerManager: ObservableObject {
     @Published private(set) var remainingSeconds: Int = 0
     @Published private(set) var totalSeconds: Int = 0
     @Published private(set) var activeHabit: Habit?
+    @Published private(set) var sessionStartTime: Date?
     
     // MARK: - Persistence Keys
     
@@ -45,6 +50,7 @@ final class FocusTimerManager: ObservableObject {
     private var timerCancellable: AnyCancellable?
     private var endDate: Date?
     private var lifecycleObservers: [Any] = []
+    private let focusSessionService = FocusSessionService.shared
     
     /// Stores the remaining seconds from the focus session before a break started
     private var preBreakRemainingSeconds: Int = 0
@@ -114,6 +120,7 @@ final class FocusTimerManager: ObservableObject {
         isActive = true
         isPaused = false
         isOnBreak = false
+        sessionStartTime = Date()
         endDate = Date().addingTimeInterval(TimeInterval(totalSeconds))
         
         persistTimerState()
@@ -157,6 +164,8 @@ final class FocusTimerManager: ObservableObject {
     func stop() {
         let habitName = activeHabit?.name ?? "Unknown"
         
+        saveSessionToFirestore(wasCompleted: false)
+        
         isActive = false
         isPaused = false
         isOnBreak = false
@@ -164,6 +173,7 @@ final class FocusTimerManager: ObservableObject {
         totalSeconds = 0
         activeHabit = nil
         endDate = nil
+        sessionStartTime = nil
         
         timerCancellable?.cancel()
         timerCancellable = nil
@@ -251,6 +261,37 @@ final class FocusTimerManager: ObservableObject {
         }
     }
     
+    private func saveSessionToFirestore(wasCompleted: Bool) {
+        guard let userId = SessionManager.shared.currentUserID,
+              let sessionStart = sessionStartTime else {
+            return
+        }
+        
+        let elapsedSeconds = totalSeconds - remainingSeconds
+        guard elapsedSeconds > 0 else { return }
+        
+        let session = FocusSession(
+            id: UUID().uuidString,
+            userId: userId,
+            habitId: activeHabit?.id.uuidString ?? "",
+            habitName: activeHabit?.name ?? "Focus",
+            habitIcon: activeHabit?.icon ?? "brain.head.profile",
+            startedAt: sessionStart,
+            endedAt: Date(),
+            durationSeconds: elapsedSeconds,
+            wasCompleted: wasCompleted
+        )
+        
+        Task {
+            do {
+                try await focusSessionService.saveSession(session, userId: userId)
+                AppLogger.shared.info("Saved focus session: \(session.durationMinutes)min, completed: \(session.wasCompleted)", category: .habit)
+            } catch {
+                AppLogger.shared.error("Failed to save focus session: \(error)", category: .habit)
+            }
+        }
+    }
+    
     private func handleTimerComplete() {
         timerCancellable?.cancel()
         timerCancellable = nil
@@ -263,6 +304,7 @@ final class FocusTimerManager: ObservableObject {
             log("Break completed for habit: \(activeHabit?.name ?? "Unknown")")
             endBreak()
         } else {
+            saveSessionToFirestore(wasCompleted: true)
             NotificationService.shared.sendLocalNotification(
                 title: "Focus Complete!",
                 body: "Great work on \(activeHabit?.name ?? "your habit")!"

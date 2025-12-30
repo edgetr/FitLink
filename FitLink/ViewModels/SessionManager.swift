@@ -97,6 +97,7 @@ final class SessionManager: ObservableObject {
             self.isAuthenticated = true
             
             await triggerHealthSync(userId: result.user.uid)
+            await pushWatchSyncState()
         } catch {
             errorMessage = mapAuthError(error)
             throw error
@@ -117,13 +118,14 @@ final class SessionManager: ObservableObject {
             await fetchUserFromFirestore(uid: result.user.uid)
             
             await triggerHealthSync(userId: result.user.uid)
+            await pushWatchSyncState()
         } catch {
             errorMessage = mapAuthError(error)
             throw error
         }
     }
     
-    func signOut() throws {
+    func signOut() async throws {
         do {
             try Auth.auth().signOut()
             self.user = nil
@@ -131,10 +133,17 @@ final class SessionManager: ObservableObject {
             self.currentUserDisplayName = nil
             self.isAuthenticated = false
             HealthSyncScheduler.shared.clearCurrentUser()
+            await pushWatchSyncState()
         } catch {
             errorMessage = "Failed to sign out. Please try again."
             throw error
         }
+    }
+    
+    private func pushWatchSyncState() async {
+        #if os(iOS)
+        await WatchConnectivityService.shared.pushStateToWatch()
+        #endif
     }
     
     func resetPassword(email: String) async throws {

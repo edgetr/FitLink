@@ -91,6 +91,18 @@ class HabitTrackerViewModel: ObservableObject {
                 log("User ID set to: \(userId ?? "nil"), reloading habits")
                 Task {
                     await loadHabitsAsync()
+                    // Trigger migration from local JSON to Firestore
+                    if let userId = userId {
+                        do {
+                            let migrated = try await HabitStore.shared.migrateLocalHabitsToFirestore(userId: userId)
+                            if migrated {
+                                log("Habit migration completed, reloading from Firestore")
+                                await loadHabitsAsync()
+                            }
+                        } catch {
+                            log("Habit migration failed: \(error.localizedDescription), continuing with local data")
+                        }
+                    }
                 }
             }
         }

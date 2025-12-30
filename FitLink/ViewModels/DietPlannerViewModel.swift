@@ -67,6 +67,9 @@ class DietPlannerViewModel: ObservableObject {
     private let maxRetryAttempts = 3
     private let partialSuccessThreshold = 0.7
     
+    /// Stored observer token for proper cleanup - block-based observers MUST be stored and explicitly removed
+    private var notificationObserver: NSObjectProtocol?
+    
     var userId: String? {
         didSet {
             if userId != nil {
@@ -115,7 +118,7 @@ class DietPlannerViewModel: ObservableObject {
     }
     
     private func setupNotificationObservers() {
-        NotificationCenter.default.addObserver(
+        notificationObserver = NotificationCenter.default.addObserver(
             forName: .planGenerationCompleted,
             object: nil,
             queue: .main
@@ -156,7 +159,9 @@ class DietPlannerViewModel: ObservableObject {
     }
     
     deinit {
-        NotificationCenter.default.removeObserver(self)
+        if let observer = notificationObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
     
     func getDietPlanDates(for plan: DietPlan) -> [Date] {
@@ -832,35 +837,53 @@ class DietPlannerViewModel: ObservableObject {
     // MARK: - Conversation State Persistence
     
     private func saveConversationState() {
-        if let data = try? JSONEncoder().encode(chatMessages) {
-            UserDefaults.standard.set(data, forKey: "diet_planner_chat_messages")
+        let messages = chatMessages
+        let generationId = currentGenerationId
+        let prefs = preferences
+        let summary = readySummary
+        let isReady = viewState == .readyToGenerate
+        let isGenerating = viewState == .generating
+        
+        Task.detached(priority: .utility) {
+            if let data = try? JSONEncoder().encode(messages) {
+                UserDefaults.standard.set(data, forKey: "diet_planner_chat_messages")
+            }
+            UserDefaults.standard.set(generationId, forKey: "diet_planner_generation_id")
+            UserDefaults.standard.set(prefs, forKey: "diet_planner_preferences")
+            UserDefaults.standard.set(summary, forKey: "diet_planner_ready_summary")
+            UserDefaults.standard.set(isReady, forKey: "diet_planner_is_ready")
+            UserDefaults.standard.set(isGenerating, forKey: "diet_planner_is_generating")
         }
-        UserDefaults.standard.set(currentGenerationId, forKey: "diet_planner_generation_id")
-        UserDefaults.standard.set(preferences, forKey: "diet_planner_preferences")
-        UserDefaults.standard.set(readySummary, forKey: "diet_planner_ready_summary")
-        UserDefaults.standard.set(viewState == .readyToGenerate, forKey: "diet_planner_is_ready")
-        UserDefaults.standard.set(viewState == .generating, forKey: "diet_planner_is_generating")
     }
     
     private func restoreConversationState() {
-        if let data = UserDefaults.standard.data(forKey: "diet_planner_chat_messages"),
-           let messages = try? JSONDecoder().decode([ChatMessage].self, from: data) {
-            chatMessages = messages
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let data = UserDefaults.standard.data(forKey: "diet_planner_chat_messages"),
+                  let messages = try? JSONDecoder().decode([ChatMessage].self, from: data),
+                  !messages.isEmpty else {
+                return
+            }
             
-            if !messages.isEmpty {
-                currentGenerationId = UserDefaults.standard.string(forKey: "diet_planner_generation_id")
-                preferences = UserDefaults.standard.string(forKey: "diet_planner_preferences") ?? ""
-                readySummary = UserDefaults.standard.string(forKey: "diet_planner_ready_summary")
+            let generationId = UserDefaults.standard.string(forKey: "diet_planner_generation_id")
+            let preferences = UserDefaults.standard.string(forKey: "diet_planner_preferences") ?? ""
+            let readySummary = UserDefaults.standard.string(forKey: "diet_planner_ready_summary")
+            let isGenerating = UserDefaults.standard.bool(forKey: "diet_planner_is_generating")
+            let isReady = UserDefaults.standard.bool(forKey: "diet_planner_is_ready")
+            
+            await MainActor.run {
+                guard let self = self else { return }
                 
-                let isGenerating = UserDefaults.standard.bool(forKey: "diet_planner_is_generating")
-                let isReady = UserDefaults.standard.bool(forKey: "diet_planner_is_ready")
+                self.chatMessages = messages
+                self.currentGenerationId = generationId
+                self.preferences = preferences
+                self.readySummary = readySummary
                 
                 if isGenerating {
-                    viewState = .generating
+                    self.viewState = .generating
                 } else if isReady {
-                    viewState = .readyToGenerate
+                    self.viewState = .readyToGenerate
                 } else {
-                    viewState = .conversing
+                    self.viewState = .conversing
                 }
             }
         }

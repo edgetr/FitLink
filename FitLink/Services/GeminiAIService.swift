@@ -619,9 +619,14 @@ actor GeminiAIService {
     
     // MARK: - Utility Methods
     
+    private static let logDateFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        return formatter
+    }()
+    
     private func log(_ message: String) {
         #if DEBUG
-        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let timestamp = Self.logDateFormatter.string(from: Date())
         print("[\(timestamp)] [GeminiAIService] \(message)")
         #endif
     }
